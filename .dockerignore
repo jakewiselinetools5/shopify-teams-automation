@@ -1,0 +1,7 @@
+node_modules
+.git
+.antigravity
+dist
+.env.local
+scratch
+migrated_prompt_history
