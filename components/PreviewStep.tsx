@@ -535,7 +535,12 @@ export const PreviewStep: React.FC<PreviewStepProps> = ({ data, onDataUpdate, on
                                 className="max-w-full max-h-full object-contain" 
                                 referrerPolicy="no-referrer"
                                 onError={(e) => {
-                                  (e.target as HTMLImageElement).src = 'https://placehold.co/400x400/f8fafc/94a3b8?text=Image+Unavailable';
+                                  const target = e.target as HTMLImageElement;
+                                  if (target.src !== firstImage) {
+                                    target.src = firstImage;
+                                  } else {
+                                    target.src = 'https://placehold.co/400x400/f8fafc/94a3b8?text=Image+Unavailable';
+                                  }
                                 }}
                               />
                             ) : (
@@ -842,8 +847,11 @@ export const PreviewStep: React.FC<PreviewStepProps> = ({ data, onDataUpdate, on
                             src={getProxiedUrl(asset)} 
                             className="max-w-full max-h-full object-contain"
                             referrerPolicy="no-referrer"
-                            onError={() => {
-                              handleRemoveImage(asset);
+                            onError={(e) => {
+                              const target = e.target as HTMLImageElement;
+                              if (target.src !== asset) {
+                                target.src = asset;
+                              }
                             }} 
                           />
                           <div className="absolute inset-0 bg-slate-900/70 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center space-x-1.5">

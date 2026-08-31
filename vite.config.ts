@@ -578,6 +578,15 @@ INDUSTRIAL TOOL SKU DECODING & FACT VERIFICATION RULES:
   * 74 01 200 = High Leverage Diagonal Cutters 200mm (8")
   * Suffix 'SBA' / 'BK' = Blister Pack / Retail Hang Card.
 
+- STEALTH / STEALTH AIR / STANLEY WET DRY VAC:
+  * ST08-2502 / 08-2502 = 2-1/2" x 20" Universal Wet/Dry Vacuum Extension Wand ($9.99 - $14.99 CAD). Fits all standard 2-1/2" diameter wet/dry vacuum hoses. High-durability black poly construction for workshop, auto detailing, and jobsite clean-up.
+  * ST08-2518 / 08-2518 = 2-1/2" x 8' Locking Wet/Dry Vacuum Hose ($24.99 - $32.99 CAD).
+  * ST08-2566 / 08-2566 = Wet/Dry Vacuum Cartridge Filter for 5-18 Gallon Vacuums ($24.99 - $34.99 CAD).
+  * ST08-2503 = 2-1/2" Utility Nozzle for Wet/Dry Vacuums ($9.99 - $12.99 CAD).
+  * ST08-2504 = 2-1/2" Crevice Tool for Wet/Dry Vacuums ($8.99 - $11.99 CAD).
+  * ST08-2505 = 2-1/2" Floor Nozzle with Squeegee ($14.99 - $19.99 CAD).
+  * ST08-2506 = 2-1/2" Round Dusting Brush ($8.99 - $11.99 CAD).
+
 - OX TOOLS / AUX TOOLS:
   * OX-P0244 / P0244 = OX Pro Box Spirit Level Series (Heavy-duty aluminum box-beam profile, Dual-View Plumb Site® vial for parallax-free vertical readings, UV-resistant magnified acrylic block vials with ±0.0005 in/in or 0.5 mm/m precision, silicone air-cushioned shockproof handles and end caps).
     - OX-P024424 / OX-P024496 / 96" = 96" (2400mm / 8ft) Non-Magnetic Pro Box Spirit Level ($179.00 - $199.00 CAD)
@@ -635,8 +644,9 @@ INDUSTRIAL TOOL SKU DECODING & FACT VERIFICATION RULES:
           // 2. Search DuckDuckGo Grounding
           try {
             const ddgQueries = [
+              `"${sku}"`,
+              `"${brand}" "${sku}"`,
               `${brand} ${cleanMfrSku}`,
-              `${brand} ${sku}`,
               systemTitleHint ? `${brand} ${systemTitleHint}` : `${brand} ${cleanMfrSku} official`
             ];
             for (const dq of ddgQueries) {
@@ -729,6 +739,7 @@ INDUSTRIAL TOOL SKU DECODING & FACT VERIFICATION RULES:
           try {
             const baseNumbers = cleanMfrSku.replace(/[^0-9]/g, '').slice(0, 4);
             const bQueries = [
+              `"${sku}"`,
               `"${brand}" "${cleanMfrSku}"`,
               `"${brand}" "${sku}"`
             ].filter(Boolean);
@@ -755,22 +766,17 @@ INDUSTRIAL TOOL SKU DECODING & FACT VERIFICATION RULES:
                     if (WRONG_KIT_TERMS.some(term => lower.includes(term))) continue;
                     if (cleanMfrSku.toUpperCase().endsWith('P1') && (lower.includes('p2') || lower.includes('p2t'))) continue;
                     if (!lower.includes('logo') && !lower.includes('icon') && !lower.includes('badge') && !lower.includes('banner') && !NON_PRODUCT_BLOCKLIST.some(k => lower.includes(k))) {
-                      const hasMatch = lower.includes(cleanMfrSku.toLowerCase()) || 
-                                       (baseNumbers.length >= 3 && lower.includes(baseNumbers)) || 
-                                       lower.includes(brand.toLowerCase());
-                      if (hasMatch) {
-                        const canonical = normalizeAndCanonicalizeUrl(imgUrl);
-                        const assetKey = getCanonicalAssetKey(canonical);
-                        if (!seenAssetKeys.has(assetKey)) {
-                          seenAssetKeys.add(assetKey);
-                          discoveredImages.push(canonical);
-                        }
+                      const canonical = normalizeAndCanonicalizeUrl(imgUrl);
+                      const assetKey = getCanonicalAssetKey(canonical);
+                      if (!seenAssetKeys.has(assetKey)) {
+                        seenAssetKeys.add(assetKey);
+                        discoveredImages.push(canonical);
                       }
                     }
                   }
                 }
               }
-              if (discoveredImages.length >= 15) break;
+              if (discoveredImages.length >= 10) break;
             }
           } catch (e) {}
 

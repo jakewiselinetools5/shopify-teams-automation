@@ -459,6 +459,13 @@ export const pushProductToShopify = async (
       productInput.category = categoryGid;
     }
 
+    if (primaryRow['SEO Title'] || primaryRow['SEO Description']) {
+      productInput.seo = {
+        title: primaryRow['SEO Title'] || undefined,
+        description: primaryRow['SEO Description'] || undefined
+      };
+    }
+
     let targetProduct: any = null;
 
     // CREATE New Product Mutation

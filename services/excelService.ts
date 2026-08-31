@@ -1,13 +1,20 @@
-
 import * as XLSX_PKG from 'xlsx';
 import { ProductRow, Mapping } from '../types';
 import { GoogleGenAI } from "@google/genai";
+import { resolveShopifyToolCategory } from '../constants';
 
 // Handle ESM import variations for xlsx-js-style
 // @ts-ignore
 const XLSX = XLSX_PKG.default || XLSX_PKG;
 
 // --- CONSTANTS ---
+const getEffectiveApiKey = (passedKey?: string): string => {
+  if (passedKey && typeof passedKey === 'string' && passedKey.trim().length > 5) return passedKey.trim();
+  if (typeof process !== 'undefined' && process.env && process.env.GEMINI_API_KEY) return process.env.GEMINI_API_KEY.trim();
+  if (typeof window !== 'undefined' && (window as any).GEMINI_API_KEY) return (window as any).GEMINI_API_KEY.trim();
+  return process.env.GEMINI_API_KEY || '';
+};
+
 export const normalizeVendor = (raw: string): string => {
     if (!raw) return '';
     let v = String(raw).trim().toUpperCase();
@@ -19,165 +26,395 @@ export const normalizeVendor = (raw: string): string => {
     return v;
 };
 
-export function resolveBrandWarranty(brand: string, productType?: string, title?: string, sku?: string, aiWarranty?: string): string {
-  if (aiWarranty && aiWarranty.trim().length > 10) {
-    return aiWarranty.trim();
+/**
+ * Researches and generates an accurate, high-impact warranty block HTML and metadata
+ * with brand-specific and category-specific precision for the Canadian tool market.
+ */
+export const generateWarrantyBlock = (
+    brand: string, 
+    sku: string, 
+    warrantyPeriod?: string, 
+    warrantyDetails?: string,
+    title?: string,
+    productType?: string
+): { html: string; period: string; details: string } => {
+    const cleanBrand = (brand || '').trim().toUpperCase();
+    const cleanSku = (sku || '').trim().toUpperCase();
+    const textContext = `${cleanBrand} ${cleanSku} ${title || ''} ${productType || ''}`.toUpperCase();
+
+    let resolvedPeriod = (warrantyPeriod || '').trim();
+    let resolvedDetails = (warrantyDetails || '').trim();
+
+    if (!resolvedPeriod || resolvedPeriod.length < 3) {
+        if (cleanBrand.includes('MILWAUKEE')) {
+            if (textContext.includes('MX FUEL') || textContext.includes('MXF')) {
+                resolvedPeriod = '2-Year Equipment & 2-Year Battery Warranty';
+                resolvedDetails = 'Milwaukee MX FUEL light equipment, batteries, and chargers are backed by a 2-year limited warranty against defects in materials and workmanship, supported by Milwaukee authorized service centers across Canada.';
+            } else if (textContext.includes('HAND TOOL') || textContext.includes('PLIER') || textContext.includes('KNIFE') || textContext.includes('TAPE MEASURE') || textContext.includes('LEVEL') || textContext.includes('WRENCH') || textContext.includes('SCREWDRIVER') || textContext.includes('HAMMER') || textContext.includes('SOCKET') || textContext.includes('RATCHET') || textContext.includes('FASTBACK') || textContext.includes('SNIP') || textContext.includes('CHISEL')) {
+                resolvedPeriod = 'Limited Lifetime Warranty';
+                resolvedDetails = 'Every Milwaukee hand tool is warranted to the original purchaser to be free from defects in material and workmanship for the normal useful life of the tool.';
+            } else if (textContext.includes('HEATED') || textContext.includes('JACKET') || textContext.includes('HOODIE') || textContext.includes('VEST')) {
+                resolvedPeriod = '1-Year Limited Warranty';
+                resolvedDetails = 'Milwaukee heated gear jackets, hoodies, and power sources are covered by a 1-year limited warranty against defects in materials and craftsmanship.';
+            } else if (textContext.includes('BATTERY') || textContext.includes('CHARGER') || textContext.includes('REDLITHIUM')) {
+                resolvedPeriod = '3-Year Battery Warranty';
+                resolvedDetails = 'Milwaukee REDLITHIUM XC, High Output, and FORGE battery packs carry a 3-year limited warranty (2-year on compact CP batteries) with hassle-free serial number tracking.';
+            } else {
+                resolvedPeriod = '5-Year Limited Tool Warranty';
+                resolvedDetails = 'Milwaukee heavy-duty cordless power tools (M12, M18, and FUEL) include a 5-year limited manufacturer warranty covering defects in material and workmanship, serviceable across authorized Canadian hubs.';
+            }
+        } else if (cleanBrand.includes('DEWALT')) {
+            if (textContext.includes('HAND TOOL') || textContext.includes('MECHANIC') || textContext.includes('SOCKET') || textContext.includes('RATCHET') || textContext.includes('WRENCH')) {
+                resolvedPeriod = 'Full Lifetime Warranty';
+                resolvedDetails = 'DEWALT hand and mechanics tools carry a full lifetime warranty. If any mechanics tool fails to perform, DEWALT will replace it hassle-free.';
+            } else if (textContext.includes('LASER') || textContext.includes('LEVEL')) {
+                resolvedPeriod = '3-Year Limited Warranty / 1-Year Free Service';
+                resolvedDetails = 'DEWALT guarantees this laser with a 3-Year Limited Warranty, 1-Year Free Service Contract, and 90-Day Money-Back Guarantee.';
+            } else {
+                resolvedPeriod = '3-Year Limited Warranty / 1-Year Free Service / 90-Day Guarantee';
+                resolvedDetails = 'DEWALT warrants this product with a 3-Year Limited Warranty, 1-Year Free Service Contract, and 90-Day Money-Back Guarantee through authorized Canadian warranty service centers.';
+            }
+        } else if (cleanBrand.includes('MAKITA')) {
+            if (textContext.includes('GAS') || textContext.includes('PNEUMATIC')) {
+                resolvedPeriod = '1-Year Limited Warranty';
+                resolvedDetails = 'Makita warrants this pneumatic or gas equipment against defects in workmanship and materials for 1 year from original purchase date.';
+            } else {
+                resolvedPeriod = '3-Year Limited Warranty';
+                resolvedDetails = 'Every Makita lithium-ion cordless power tool, battery, and charger is warranted to be free of defects from workmanship and materials for a period of 3 years from the original purchase date.';
+            }
+        } else if (cleanBrand.includes('BOSCH')) {
+            if (textContext.includes('MEASURING') || textContext.includes('LASER')) {
+                resolvedPeriod = '2-Year Limited Warranty';
+                resolvedDetails = 'Bosch measuring and laser layout tools are covered by a 2-year limited warranty with product registration, ensuring jobsite calibration and repair.';
+            } else {
+                resolvedPeriod = '1-Year Limited (Extendable to 3-Year PROVantage)';
+                resolvedDetails = 'Bosch Cordless 18V Tools include a 1-year limited warranty, extendable up to 3 years with complimentary Bosch PROVantage registration.';
+            }
+        } else if (cleanBrand.includes('KLEIN')) {
+            resolvedPeriod = 'Lifetime Warranty';
+            resolvedDetails = 'Klein Tools products are manufactured for normal life and warranted to be free from defects in materials and workmanship for the useful life of the product.';
+        } else if (cleanBrand.includes('FESTOOL')) {
+            resolvedPeriod = '3-Year All-Inclusive Warranty (Wear & Tear Covered)';
+            resolvedDetails = 'Festool 3-Year All-Inclusive warranty covers all manufacturing defects, wear-and-tear repair costs, theft protection, and guaranteed 10-year spare parts availability.';
+        } else if (cleanBrand.includes('KNIPEX') || cleanBrand.includes('WERA') || cleanBrand.includes('WIHA') || cleanBrand.includes('CHANNELLOCK') || cleanBrand.includes('CRESCENT')) {
+            resolvedPeriod = 'Lifetime Manufacturer Warranty';
+            resolvedDetails = 'Guaranteed against defects in material and workmanship under normal professional trade use for the lifetime of the product.';
+        } else if (cleanBrand.includes('DIABLO') || cleanBrand.includes('FREUD')) {
+            resolvedPeriod = 'Limited Lifetime Warranty';
+            resolvedDetails = 'Diablo cutting tools, blades, and router bits are warranted against defects in materials and workmanship for the life of the tool.';
+        } else if (cleanBrand.includes('OLIGHT')) {
+            resolvedPeriod = 'Lifetime Limited Warranty';
+            resolvedDetails = 'Olight products are covered by Olight Lifetime Limited Manufacturer Warranty against defects in materials and craftsmanship in North America.';
+        } else if (cleanBrand.includes('BADGER') || cleanBrand.includes('OCCIDENTAL')) {
+            resolvedPeriod = '2-Year Manufacturer Warranty';
+            resolvedDetails = 'Occidental Leather & Badger Tool Belts 2-year manufacturer warranty covering defects in craftsmanship and materials under normal trade use.';
+        } else {
+            resolvedPeriod = 'Manufacturer Limited Warranty';
+            resolvedDetails = 'Backed by official manufacturer warranty against defects in materials and workmanship under standard commercial and industrial operating conditions.';
+        }
+    }
+
+    if (!resolvedDetails) {
+        resolvedDetails = `Backed by ${cleanBrand || 'manufacturer'} warranty coverage against defects in materials and workmanship. Supported by authorized Canadian distribution centers.`;
+    }
+
+    // High-impact, responsive, styled HTML warranty block that looks exceptional in Shopify and web views
+    const html = `
+<div class="product-warranty-block" style="margin-top: 36px; padding: 22px 24px; background: #f8fafc; border: 1px solid #e2e8f0; border-left: 4px solid #10b981; border-radius: 12px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+  <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; border-bottom: 1px solid #e2e8f0; padding-bottom: 10px;">
+    <h4 style="margin: 0; font-size: 13px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; color: #0f172a; display: flex; align-items: center; gap: 8px;">
+      <svg style="width: 18px; height: 18px; color: #10b981; fill: currentColor; flex-shrink: 0;" viewBox="0 0 24 24"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm-2 16l-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z"/></svg>
+      Manufacturer Warranty & Guarantee
+    </h4>
+    <span style="display: inline-block; font-size: 11px; font-weight: 800; color: #065f46; background: #d1fae5; border: 1px solid #a7f3d0; padding: 4px 12px; border-radius: 9999px; text-transform: uppercase; letter-spacing: 0.05em;">
+      ${resolvedPeriod}
+    </span>
+  </div>
+  <p style="margin: 0 0 6px 0; font-size: 13px; font-weight: 700; color: #1e293b;">
+    <strong>Coverage:</strong> ${resolvedPeriod}
+  </p>
+  <p style="margin: 0; font-size: 12px; line-height: 1.6; color: #475569;">
+    ${resolvedDetails}
+  </p>
+</div>`.trim();
+
+    return {
+        html,
+        period: resolvedPeriod,
+        details: resolvedDetails
+    };
+};
+
+/**
+ * Derives a canonical fingerprint/key for an image URL to identify duplicates across
+ * different resolutions, query parameters, proxy wrappers, and CDN variants.
+ */
+export const getCanonicalAssetKey = (url: string) => getImageFingerprint(url);
+export const getImageFingerprint = (url: string): string => {
+  if (!url || typeof url !== 'string') return '';
+  const trimmed = url.trim();
+  if (trimmed.startsWith('data:')) {
+    // For base64 images, use the first 120 chars as fingerprint
+    return trimmed.substring(0, 120);
   }
 
-  const b = String(brand || '').toUpperCase();
-  const t = String(title || '').toLowerCase();
-  const p = String(productType || '').toLowerCase();
-
-  const isPowerTool = t.includes('cordless') || t.includes('fuel') || t.includes('m12') || t.includes('m18') || 
-                      t.includes('20v') || t.includes('40v') || t.includes('18v') || t.includes('xgt') || 
-                      t.includes('lxt') || t.includes('impact') || t.includes('drill') || t.includes('saw') || 
-                      t.includes('grinder') || t.includes('sander') || t.includes('router') || t.includes('blower') ||
-                      t.includes('compressor') || t.includes('rotary hammer') ||
-                      p.includes('power') || p.includes('cordless') || p.includes('saw') || p.includes('drill') || p.includes('impact');
-
-  const isHandTool = t.includes('wrench') || t.includes('socket') || t.includes('ratchet') || t.includes('plier') || 
-                     t.includes('cutter') || t.includes('screwdriver') || t.includes('hex key') || t.includes('clamp') || 
-                     t.includes('hammer') || t.includes('tape') || t.includes('level') || t.includes('knife') || 
-                     t.includes('snip') || t.includes('pry bar') || t.includes('punch') || t.includes('chisel') ||
-                     p.includes('hand tool') || p.includes('wrench') || p.includes('plier');
-
-  if (b.includes('MILWAUKEE')) {
-    if (t.includes('trimmer') || t.includes('blower') || t.includes('chainsaw') || t.includes('mower') || p.includes('outdoor')) {
-      return 'MILWAUKEE 3-Year Limited Warranty on M18 FUEL Outdoor Power Equipment, and 3-Year Limited Warranty on REDLITHIUM High Output battery packs.';
-    }
-    if (isPowerTool) {
-      return 'MILWAUKEE 5-Year Limited Tool Warranty on cordless power tools, 3-Year Limited Warranty on REDLITHIUM XC battery packs, and 2-Year Warranty on compact batteries.';
-    }
-    if (isHandTool) {
-      return 'MILWAUKEE Limited Lifetime Warranty: Hand tools are warranted to the original purchaser to be free from defects in material and workmanship for the useful life of the tool.';
-    }
-    return 'MILWAUKEE Limited Lifetime Warranty on Hand Tools against defects in materials and workmanship.';
-  }
-  if (b.includes('DEWALT')) {
-    if (isPowerTool) {
-      return 'DEWALT 3-Year Limited Warranty, 1-Year Free Service Contract, and 90-Day Money-Back Guarantee on cordless power tools.';
-    }
-    if (isHandTool) {
-      return 'DEWALT Full Lifetime Warranty on mechanics hand tools, ratchets, and wrenches.';
-    }
-    return 'DEWALT 3-Year Limited Warranty on power tools, or Full Lifetime Warranty on manual hand tools.';
-  }
-  if (b.includes('BOSCH')) {
-    return 'Bosch 1-Year Limited Manufacturer Warranty with PRO+3 Extended Warranty coverage available upon online product registration.';
-  }
-  if (b.includes('BLUESTREAK') || b.includes('BLUE STREAK')) {
-    return 'Bluestreak Lifetime Magnet Warranty: Permanent rare-earth and ceramic magnet assemblies are guaranteed never to lose magnetic strength under normal operating conditions.';
-  }
-  if (b.includes('MAKITA')) {
-    return 'Makita 3-Year Limited Warranty on 18V LXT / 40V XGT cordless tools, lithium-ion batteries, and chargers against defects from faulty materials or workmanship.';
-  }
-  if (b.includes('FESTOOL')) {
-    return 'Festool 3-Year All-Inclusive Warranty: Includes comprehensive coverage for repair costs, wear-and-tear replacement parts, theft protection, and a 10-year dedicated parts availability guarantee.';
-  }
-  if (b.includes('STABILA')) {
-    if (t.includes('laser') || p.includes('laser') || t.includes('electronic') || p.includes('tech')) {
-      return 'STABILA 2-Year Limited Manufacturer Warranty: Covers electronic sensors, laser diodes, and internal circuitry against defects in materials and workmanship.';
-    }
-    return 'STABILA Lifetime Accuracy Warranty: Precision-cast acrylic vials are guaranteed never to fog, leak, or lose accuracy under normal jobsite use.';
-  }
-  if (b.includes('TOPCON')) {
-    return 'Topcon 2-Year / 3-Year Limited Manufacturer Warranty on construction lasers, total stations, and positioning equipment against manufacturing defects and calibration drift under standard field conditions.';
-  }
-  if (b.includes('TAJIMA')) {
-    return 'TAJIMA Limited Lifetime Warranty against defects in material and workmanship under normal professional trade use.';
-  }
-  if (b.includes('WERA')) {
-    return 'Wera Lifetime Limited Warranty: Wera warrants its hand tools, torque wrenches, and bit systems against defects in materials and workmanship under normal professional trade conditions.';
-  }
-  if (b.includes('WIHA')) {
-    return 'Wiha Lifetime Guarantee: Wiha tools are guaranteed against defects in materials and craftsmanship for the life of the product.';
-  }
-  if (b.includes('BESSEY')) {
-    return 'BESSEY Lifetime Limited Warranty: Guaranteed against defects in materials and workmanship under normal professional trade use.';
-  }
-  if (b.includes('WATSON')) {
-    return 'Watson Gloves Manufacturer Guarantee against defects in craftsmanship and materials under normal commercial trade use.';
-  }
-  if (b.includes('KNIPEX')) {
-    return 'KNIPEX Lifetime Limited Warranty: Precision forged in Germany, guaranteed against defects in materials and workmanship under normal professional trade use.';
-  }
-  if (b.includes('OX TOOLS') || b.includes('OX ') || b === 'OX' || b.includes('AUX TOOLS')) {
-    if (t.includes('level') || p.includes('level')) {
-      return 'OX Tools Lifetime Vial Warranty: Vials are guaranteed for life against leakage, fogging, and loss of accuracy (±0.0005 in/in / 0.5 mm/m); backed by OX Tools 3-Year Limited Manufacturer Warranty on level frame and body.';
-    }
-    if (t.includes('diamond') || t.includes('blade') || p.includes('blade')) {
-      return 'OX Tools Guaranteed Tough Diamond Blade Warranty against segment loss or core cracking under recommended operating RPMs.';
-    }
-    return 'OX Tools Hand Tool Limited Lifetime Warranty against defects in materials and craftsmanship under normal commercial trade use.';
-  }
-  if (b.includes('SOLA')) {
-    return 'SOLA Lifetime Vial Warranty: Patented FOCUS acrylic vials are guaranteed for life against leakage and fading with ±0.5 mm/m precision accuracy.';
-  }
-  if (b.includes('EGO')) {
-    return 'EGO Power+ 5-Year Limited Tool Warranty and 3-Year Limited Battery Warranty for residential use (1-Year Commercial Warranty) against defects in materials and workmanship. Wise Line Tools is an authorized Canadian supplier.';
-  }
-  if (b.includes('EDGE') || b.includes('EDGE EYEWEAR')) {
-    return 'Edge Eyewear Manufacturer Limited Warranty against defects in materials and craftsmanship. Meets ANSI Z87.1+ and CSA Z94.3 safety benchmarks for high-impact industrial eye protection.';
-  }
-  if (b.includes('DYNAMIC') || b.includes('DYNAMIC SAFETY')) {
-    return 'Dynamic Safety / PIP Canada Manufacturer Guarantee against defects in materials and workmanship. Certified to applicable NIOSH, CSA, and ANSI personal protective equipment (PPE) safety standards.';
-  }
-  return `Official ${b || 'Manufacturer'} Canadian Manufacturer Warranty applies. Wise Line Tools is an authorized Canadian supplier with full warranty and service support.`;
-}
-
-export const NON_PRODUCT_BLOCKLIST = [
-  'googleusercontent.com', 'blogger_img_proxy', 'blogspot.com', 'wordpress.com',
-  'wp-content/uploads/202', 'pinimg.com', 'pinterest.com', 'vecteezy', 'freepik',
-  'shutterstock', 'gettyimages', 'istockphoto', 'stock-photo', 'clipart', 'vector',
-  'silhouette', 'coloring', 'craft', 'hobby', 'floral', 'leaf', 'leaves',
-  'flower', 'tattoo', 'wallpaper', 'schemecolor', 'booster', 'escultura', 'tecmilenio',
-  'edicom', 'almanac', 'gardening', 'plant', 'clipartkey', 'cleanpng', 'kissspng',
-  'pngwing', 'pngtree', 'icon-icons', 'flaticon', 'depositphotos', '123rf', 'dreamstime',
-  'craiyon.com', 'travel', 'tourist', 'tourism', 'attraction', 'attractions', 'destination',
-  'destinations', 'monument', 'monuments', 'landmark', 'landmarks', 'vacation', 'scenery',
-  'landscape', 'eiffel', 'taj-mahal', 'colosseum', 'machu-picchu', 'golden-gate', 'pyramid',
-  'statue-of-liberty', 'tripadvisor', 'lonelyplanet', 'hotel', 'resort', 'flight', 'airline'
-];
-
-export function normalizeAndCanonicalizeUrl(rawUrl: string): string {
   try {
-    let clean = rawUrl.trim().replace(/^http:\/\//i, 'https://');
-    const u = new URL(clean);
-    
-    // Shopify upscaler & query stripper
-    if (u.hostname.includes('shopify.com') || u.pathname.includes('/cdn/shop/')) {
-      u.search = '';
-      u.pathname = u.pathname.replace(/_[0-9]+x[0-9]+(?=\.[a-z0-9]+$)/i, '_1200x1200')
-                             .replace(/_(?:small|thumb|compact|medium|large|grande)(?=\.[a-z0-9]+$)/i, '_1200x1200');
-    } else if (u.hostname.includes('insitecloud.net') || u.pathname.includes('insitecloud.net')) {
-      // InsiteCloud upscaler: _sm, _md -> _lg
-      u.search = '';
-      u.pathname = u.pathname.replace(/_(?:sm|md|thumb)(?=\.[a-z0-9]+$)/i, '_lg');
-    } else if (u.pathname.includes('/stencil/')) {
-      // BigCommerce upscaler
-      u.pathname = u.pathname.replace(/\/stencil\/\d+x\d+\//, '/stencil/1280x1280/').replace(/\/stencil\/\d+w\//, '/stencil/1280x1280/');
-    } else {
-      // Strip cache-busting search query parameters
-      u.search = '';
+    const parsed = new URL(trimmed.startsWith('//') ? `https:${trimmed}` : (trimmed.startsWith('http') ? trimmed : `https://${trimmed}`));
+    const hostname = parsed.hostname.toLowerCase().replace(/^www\./, '');
+    let pathname = parsed.pathname.toLowerCase();
+
+    // 1. Scene7 / Adobe Dynamic Media (e.g. /is/image/milwaukeetool/48-22-8424_hero?$...)
+    if (hostname.includes('scene7') || hostname.includes('milwaukeetool') || hostname.includes('sbdinc') || hostname.includes('dewalt')) {
+      const isImageMatch = pathname.match(/\/is\/image\/[^\/]+\/([^\/?#]+)/i);
+      if (isImageMatch) {
+        return `scene7:${isImageMatch[1].toLowerCase()}`;
+      }
     }
 
-    return u.toString();
-  } catch (e) {
-    return rawUrl;
-  }
-}
+    // 2. Shopify CDN (e.g. /files/48-22-8424_hero_2048x2048.jpg or /products/48-22-8424_large.png)
+    if (hostname.includes('shopify') || hostname.includes('cdn.shopify.com')) {
+      // Strip resolution suffixes like _2048x2048, _1024x1024, _grande, _medium, _small, etc.
+      const cleanedShopify = pathname.replace(/_(?:pico|icon|thumb|small|compact|medium|large|grande|\d+x\d*|x\d+)\.(jpg|jpeg|png|webp|gif)$/i, '.$1');
+      const filenameMatch = cleanedShopify.match(/\/([^\/?#]+)$/);
+      if (filenameMatch) {
+        return `shopify:${filenameMatch[1].toLowerCase()}`;
+      }
+    }
 
-export function getCanonicalAssetKey(url: string): string {
-  try {
-    const u = new URL(url);
-    let pathname = u.pathname.toLowerCase();
-    pathname = pathname.replace(/_(?:sm|md|lg|thumb|medium|large|small|_1200x1200)(?=\.[a-z0-9]+$)/i, '');
-    const filename = pathname.split('/').pop() || '';
-    return `${u.hostname}/${filename}`;
+    // 3. Amazon Media (e.g. /images/I/71xyz._AC_SL1500_.jpg)
+    if (hostname.includes('amazon')) {
+      const amzMatch = pathname.match(/\/([A-Za-z0-9\-_]{8,})\.[^.\/]+\.(jpg|jpeg|png|webp)/i) || pathname.match(/\/([A-Za-z0-9\-_]{8,})\.(jpg|jpeg|png|webp)/i);
+      if (amzMatch) {
+        return `amazon:${amzMatch[1].toLowerCase()}`;
+      }
+    }
+
+    // 4. Home Depot (thdstatic.com / homedepot.ca)
+    if (hostname.includes('thdstatic') || hostname.includes('homedepot')) {
+      const hdMatch = pathname.match(/\/([a-f0-9\-]{20,})\//i) || pathname.match(/\/([^\/?#]+?)(?:_(?:100|145|300|400|600|1000))?\.(?:jpg|jpeg|png|webp)/i);
+      if (hdMatch) {
+        return `homedepot:${hdMatch[1].toLowerCase()}`;
+      }
+    }
+
+    // 5. Cloudinary / Imgix
+    if (hostname.includes('cloudinary') || hostname.includes('imgix')) {
+      const lastSegment = pathname.split('/').filter(Boolean).pop() || '';
+      return `cdn:${lastSegment.toLowerCase()}`;
+    }
+
+    // 6. Generic clean filename match (strip dimensions, cachebusters, and common prefixes)
+    const baseFilename = pathname.split('/').filter(Boolean).pop() || '';
+    if (baseFilename) {
+      // Strip resolution/dimension stamps like _1000x1000, -800x800, _2000, @2x
+      const normalizedFilename = baseFilename
+        .replace(/[-_](?:\d+x\d*|\d{3,4})(?=\.[a-z0-9]+$)/gi, '')
+        .replace(/@\d+x(?=\.[a-z0-9]+$)/gi, '')
+        .toLowerCase();
+      
+      return `${hostname}:${normalizedFilename}`;
+    }
+
+    return `${hostname}${pathname}`;
   } catch (e) {
-    return url.toLowerCase();
+    return trimmed.toLowerCase().replace(/[^a-z0-9]/g, '');
   }
-}
+};
+
+/**
+ * Deduplicates an array of image URLs using both exact URL matches and
+ * intelligent visual/CDN fingerprinting to weed out identical images at different resolutions.
+ */
+export const deduplicateImages = (urls: (string | undefined | null)[]): string[] => {
+  if (!Array.isArray(urls)) return [];
+  
+  const seenUrls = new Set<string>();
+  const seenFingerprints = new Set<string>();
+  const result: string[] = [];
+
+  for (const rawUrl of urls) {
+    if (!rawUrl || typeof rawUrl !== 'string') continue;
+    const clean = cleanImageUrl(rawUrl);
+    if (!clean) continue;
+
+    const lowerClean = clean.toLowerCase();
+    if (seenUrls.has(lowerClean)) continue;
+
+    const fingerprint = getImageFingerprint(clean);
+    if (fingerprint && seenFingerprints.has(fingerprint)) {
+      continue; // Duplicate identified through CDN/filename fingerprint
+    }
+
+    seenUrls.add(lowerClean);
+    if (fingerprint) {
+      seenFingerprints.add(fingerprint);
+    }
+    result.push(clean);
+  }
+
+  return result;
+};
+
+/**
+ * Calculates a quality score for an image candidate to determine its suitability as the primary Hero photo.
+ * Higher score = higher priority for position 1 (Hero).
+ */
+export const calculateHeroQualityScore = (url: string, brand = '', sku = ''): number => {
+  if (!url || typeof url !== 'string') return -999;
+  const cleanUrl = url.trim();
+  const lowerUrl = cleanUrl.toLowerCase();
+  let score = 100;
+
+  // AI-generated crystal clear 3D studio shots on pure white backgrounds are top tier
+  if (cleanUrl.startsWith('data:image')) {
+    score += 150;
+  }
+
+  const cleanSku = (sku || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+
+  // 1. Filename & keyword boosts (Clear signs of primary hero/main product isolation)
+  if (lowerUrl.includes('_hero') || lowerUrl.includes('-hero') || lowerUrl.includes('/hero')) score += 80;
+  if (lowerUrl.includes('_main') || lowerUrl.includes('-main') || lowerUrl.includes('/main')) score += 70;
+  if (lowerUrl.includes('_primary') || lowerUrl.includes('primary_')) score += 65;
+  if (lowerUrl.includes('_iso') || lowerUrl.includes('isolated') || lowerUrl.includes('white_bg') || lowerUrl.includes('whitebg')) score += 60;
+  if (lowerUrl.includes('_front') || lowerUrl.includes('front_view')) score += 50;
+  if (lowerUrl.includes('_1.') || lowerUrl.includes('_01.') || lowerUrl.includes('_a1.') || lowerUrl.includes('_a.') || lowerUrl.includes('-1.') || lowerUrl.includes('-01.')) score += 45;
+
+  // SKU exact presence in image filename
+  if (cleanSku && cleanSku.length >= 3 && lowerUrl.includes(cleanSku)) {
+    score += 35;
+  }
+
+  // 2. High-Trust Manufacturer CDNs & Retailer Main Galleries
+  if (lowerUrl.includes('milwaukeetool.com') || lowerUrl.includes('dewalt.com') || lowerUrl.includes('makitatools.com') || lowerUrl.includes('boschtools.com') || lowerUrl.includes('sbdinc.com') || lowerUrl.includes('olightstore.com') || lowerUrl.includes('olightstore.ca')) {
+    score += 30;
+  }
+  if (lowerUrl.includes('scene7.com')) {
+    score += 25;
+  }
+  if (lowerUrl.includes('cdn.shopify.com')) {
+    score += 15;
+  }
+
+  // 3. Heavy penalties for secondary, non-product, lifestyle, packaging, or diagram assets
+  if (lowerUrl.includes('lifestyle') || lowerUrl.includes('_app') || lowerUrl.includes('in_use') || lowerUrl.includes('inuse') || lowerUrl.includes('action') || lowerUrl.includes('jobsite') || lowerUrl.includes('context')) {
+    score -= 80; // Secondary angle, not hero
+  }
+  if (lowerUrl.includes('pkg') || lowerUrl.includes('package') || lowerUrl.includes('packaging') || lowerUrl.includes('_box') || lowerUrl.includes('carton')) {
+    score -= 70; // Packaging is rarely the best main thumbnail
+  }
+  if (lowerUrl.includes('banner') || lowerUrl.includes('hero_banner') || lowerUrl.includes('header') || lowerUrl.includes('slide') || lowerUrl.includes('carousel')) {
+    score -= 90; // Wide landscape banner graphics
+  }
+  if (lowerUrl.includes('dim') || lowerUrl.includes('dimension') || lowerUrl.includes('spec') || lowerUrl.includes('schematic') || lowerUrl.includes('diagram') || lowerUrl.includes('manual') || lowerUrl.includes('exploded') || lowerUrl.includes('parts')) {
+    score -= 120; // Blueprint or spec diagram
+  }
+  if (lowerUrl.includes('icon') || lowerUrl.includes('badge') || lowerUrl.includes('logo') || lowerUrl.includes('warranty') || lowerUrl.includes('rating') || lowerUrl.includes('star')) {
+    score -= 150; // Generic UI icons
+  }
+  if (lowerUrl.includes('_thumb') || lowerUrl.includes('_small') || lowerUrl.includes('_mini') || lowerUrl.includes('100x100') || lowerUrl.includes('150x150')) {
+    score -= 60; // Tiny low-res variant
+  }
+
+  // 4. Subtle angle sorting for multi-angle sets (Position 1: Front/Hero > Angle 2 > Angle 3)
+  if (lowerUrl.includes('_2.') || lowerUrl.includes('_02.') || lowerUrl.includes('_b.') || lowerUrl.includes('_a2.')) score -= 15;
+  if (lowerUrl.includes('_3.') || lowerUrl.includes('_03.') || lowerUrl.includes('_c.') || lowerUrl.includes('_a3.')) score -= 25;
+  if (lowerUrl.includes('_4.') || lowerUrl.includes('_04.') || lowerUrl.includes('_d.') || lowerUrl.includes('_a4.')) score -= 35;
+  if (lowerUrl.includes('_5.') || lowerUrl.includes('_05.') || lowerUrl.includes('_e.') || lowerUrl.includes('_a5.')) score -= 45;
+
+  return score;
+};
+
+/**
+ * Ranks and orders product images using intelligent quality heuristics so that the cleanest,
+ * highest-contrast isolated product shot is guaranteed at position 1 (Hero).
+ */
+export const rankImagesForHero = (urls: (string | undefined | null)[], brand = '', sku = ''): string[] => {
+  const deduped = deduplicateImages(urls);
+  if (deduped.length <= 1) return deduped;
+
+  return deduped
+    .map((url, originalIndex) => ({
+      url,
+      originalIndex,
+      score: calculateHeroQualityScore(url, brand, sku)
+    }))
+    .sort((a, b) => {
+      // Sort by score descending; if tied, preserve original discovery order
+      if (b.score !== a.score) {
+        return b.score - a.score;
+      }
+      return a.originalIndex - b.originalIndex;
+    })
+    .map(item => item.url);
+};
+
+export const upscaleImageUrl = (url: string): string => {
+  if (!url || typeof url !== 'string') return '';
+  let upgraded = url.trim();
+
+  try {
+    const parsed = new URL(upgraded);
+    const host = parsed.hostname.toLowerCase();
+    const pathname = parsed.pathname;
+
+    // 1. Scene7 / Adobe Dynamic Media (Milwaukee, DeWalt, Stanley, Craftsman, Black&Decker)
+    if (host.includes('scene7.com') || host.includes('media.milwaukeetool.com') || host.includes('images.sbdinc.com') || host.includes('dewalt.com')) {
+      parsed.searchParams.set('wid', '2000');
+      parsed.searchParams.set('hei', '2000');
+      parsed.searchParams.set('fmt', 'jpg');
+      parsed.searchParams.set('qlt', '90');
+      parsed.searchParams.set('fit', 'fit');
+      parsed.searchParams.delete('crop');
+      upgraded = parsed.toString().replace(/\$[^$]+?\$/g, '$zoom$');
+      return upgraded;
+    }
+
+    // 2. Shopify CDN
+    if (host.includes('cdn.shopify.com') || host.includes('shopify.com')) {
+      upgraded = upgraded.replace(/_(?:pico|icon|thumb|small|compact|medium|large|grande|\d+x\d*|x\d+)\.(jpg|jpeg|png|webp)(\?.*)?$/i, '_2048x2048.$1$2');
+      return upgraded;
+    }
+
+    // 3. Amazon Media CDN
+    if (host.includes('media-amazon.com') || host.includes('images-amazon.com') || host.includes('ssl-images-amazon.com')) {
+      upgraded = upgraded.replace(/\._[A-Za-z0-9_,]+_\./g, '.');
+      return upgraded;
+    }
+
+    // 4. Home Depot CDN (thdstatic.com / homedepot.ca)
+    if (host.includes('thdstatic.com') || host.includes('homedepot.ca') || host.includes('homedepot.com')) {
+      upgraded = upgraded.replace(/\/(?:100|145|300|400|600)\.jpg/gi, '/1000.jpg');
+      upgraded = upgraded.replace(/_(?:100|145|300|400|600)\.jpg/gi, '_1000.jpg');
+      return upgraded;
+    }
+
+    // 5. Cloudinary
+    if (host.includes('cloudinary.com') || host.includes('res.cloudinary.com')) {
+      upgraded = upgraded.replace(/\/upload\/(?:[a-z0-9_,:]+\/)?/i, '/upload/q_auto,f_auto,w_2000/');
+      return upgraded;
+    }
+
+    // 6. Grainger CDN
+    if (host.includes('grainger.com')) {
+      upgraded = upgraded.replace(/_(\d{2,3})\.(jpg|jpeg|png)/i, '_2000.$2');
+      return upgraded;
+    }
+
+    // 7. General width/height query params
+    if (parsed.searchParams.has('w') || parsed.searchParams.has('h') || parsed.searchParams.has('width') || parsed.searchParams.has('height')) {
+      if (parsed.searchParams.has('w')) parsed.searchParams.set('w', '2000');
+      if (parsed.searchParams.has('h')) parsed.searchParams.set('h', '2000');
+      if (parsed.searchParams.has('width')) parsed.searchParams.set('width', '2000');
+      if (parsed.searchParams.has('height')) parsed.searchParams.set('height', '2000');
+      upgraded = parsed.toString();
+    }
+  } catch (e) {
+    // If URL parsing fails, return original
+  }
+
+  return upgraded;
+};
 
 export const cleanImageUrl = (url: any): string => {
   if (!url || typeof url !== 'string') return '';
@@ -188,7 +425,7 @@ export const cleanImageUrl = (url: any): string => {
   
   const lower = clean.toLowerCase();
   
-  // STRICT BLOCKLIST: Placeholders, Logos, Banners, Separator Lines, and Blocked CDNs
+  // STRICT BLOCKLIST: Placeholders, Badges, Icons, Ratings, Banners
   if (lower.includes('placehold.co') || 
       lower.includes('via.placeholder') || 
       lower.includes('dummyimage') ||
@@ -197,45 +434,414 @@ export const cleanImageUrl = (url: any): string => {
       lower.includes('no_image') ||
       lower.includes('not_found') ||
       lower.includes('default_image') ||
-      lower.includes('thdstatic.com') ||
-      lower.includes('logo') ||
-      lower.includes('banner') ||
+      lower.includes('star-rating') ||
+      lower.includes('shipping-truck') ||
+      lower.includes('prop65') ||
+      lower.includes('favicon') ||
+      lower.includes('logo_small') ||
       lower.includes('badge') ||
-      lower.includes('mapleleaf') ||
-      lower.includes('image-manager') ||
-      lower.includes('beaver') ||
-      lower.includes('bis-') ||
-      lower.includes('divider') ||
-      lower.includes('separator') ||
-      lower.includes('gradient') ||
-      NON_PRODUCT_BLOCKLIST.some(k => lower.includes(k))) {
+      lower.includes('1x1') ||
+      lower.includes('pixel.gif')) {
       return '';
   }
 
   // Filter out non-permanent or low-quality thumbnails/proxies
   if (lower.includes('gstatic.com') || 
       lower.includes('encrypted-tbn') || 
+      lower.includes('googleusercontent.com') || 
       lower.includes('search_thumbnail') ||
       lower.startsWith('data:image')) {
       return '';
   }
 
-  // Filter out bare domains or HTML pages (must have an image extension or look like a CDN path)
+  // Filter out bare domains or HTML pages
   try {
       const urlObj = new URL(clean);
       const path = urlObj.pathname.toLowerCase();
-      if (path === '/' || path === '' || path.endsWith('.html') || path.endsWith('.php') || path.endsWith('.aspx')) {
+      if (path === '/' || path === '' || path.endsWith('.html') || path.endsWith('.php') || path.endsWith('.aspx') || path.endsWith('.jsp')) {
           return '';
       }
   } catch (e) {
       return '';
   }
 
-  return normalizeAndCanonicalizeUrl(clean);
+  // Auto-upgrade CDN URLs to maximum available resolution
+  clean = upscaleImageUrl(clean);
+
+  return clean;
+};
+
+/**
+ * Validates whether an image URL actually loads in the browser and meets minimum dimensions.
+ */
+export const validateImageUrl = (url: string, timeoutMs: number = 4000): Promise<boolean> => {
+  return new Promise((resolve) => {
+    if (!url || typeof url !== 'string' || !url.startsWith('http')) {
+      return resolve(false);
+    }
+    
+    // Quick block obvious dead patterns
+    if (url.includes('placehold.co') || url.includes('via.placeholder') || url.includes('dummyimage')) {
+      return resolve(false);
+    }
+
+    const img = new Image();
+    let isResolved = false;
+
+    const timer = setTimeout(() => {
+      if (!isResolved) {
+        isResolved = true;
+        img.src = '';
+        resolve(false);
+      }
+    }, timeoutMs);
+
+    img.onload = () => {
+      if (!isResolved) {
+        isResolved = true;
+        clearTimeout(timer);
+        // Exclude tiny tracking pixels and broken icons
+        if (img.naturalWidth >= 80 && img.naturalHeight >= 80) {
+          resolve(true);
+        } else {
+          resolve(false);
+        }
+      }
+    };
+
+    img.onerror = () => {
+      if (!isResolved) {
+        isResolved = true;
+        clearTimeout(timer);
+        resolve(false);
+      }
+    };
+
+    img.referrerPolicy = 'no-referrer';
+    img.src = url;
+  });
+};
+
+/**
+ * Scrapes real image URLs directly from a webpage's HTML (JSON-LD, OpenGraph, DOM images).
+ */
+export const scrapeImagesFromWebPage = async (pageUrl: string): Promise<string[]> => {
+  if (!pageUrl || !pageUrl.startsWith('http')) return [];
+  const foundImages: string[] = [];
+
+  const proxies = [
+    (u: string) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
+    (u: string) => `https://corsproxy.io/?url=${encodeURIComponent(u)}`,
+    (u: string) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`
+  ];
+
+  for (const proxyFn of proxies) {
+    try {
+      const proxyUrl = proxyFn(pageUrl);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 7000);
+
+      const res = await fetch(proxyUrl, { 
+        signal: controller.signal,
+        headers: { 'Accept': 'text/html,application/xhtml+xml,application/xml' }
+      });
+      clearTimeout(timeoutId);
+
+      if (!res.ok) continue;
+      const html = await res.text();
+      if (!html || html.length < 200) continue;
+
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(html, 'text/html');
+
+      // 1. JSON-LD structured data extraction
+      const scripts = doc.querySelectorAll('script[type="application/ld+json"]');
+      scripts.forEach(script => {
+        try {
+          const json = JSON.parse(script.textContent || '{}');
+          const checkObject = (obj: any) => {
+            if (!obj || typeof obj !== 'object') return;
+            if (obj.image) {
+              if (Array.isArray(obj.image)) {
+                obj.image.forEach((img: any) => {
+                  if (typeof img === 'string') foundImages.push(img);
+                  else if (img?.url) foundImages.push(img.url);
+                  else if (img?.contentUrl) foundImages.push(img.contentUrl);
+                });
+              } else if (typeof obj.image === 'string') {
+                foundImages.push(obj.image);
+              } else if (obj.image.url) {
+                foundImages.push(obj.image.url);
+              }
+            }
+            if (Array.isArray(obj['@graph'])) {
+              obj['@graph'].forEach(checkObject);
+            }
+          };
+          checkObject(json);
+        } catch (e) {}
+      });
+
+      // 2. OpenGraph & Meta Tags
+      const metaTags = doc.querySelectorAll('meta[property="og:image"], meta[property="og:image:secure_url"], meta[name="twitter:image"], meta[name="twitter:image:src"], link[rel="image_src"]');
+      metaTags.forEach(tag => {
+        const content = tag.getAttribute('content') || tag.getAttribute('href');
+        if (content) foundImages.push(content);
+      });
+
+      // 3. High-res product gallery image attributes
+      const imgElements = doc.querySelectorAll('img[src], img[data-zoom-image], img[data-large], img[data-highres], img[data-src], img[data-old-hires], img[srcset]');
+      imgElements.forEach(img => {
+        const candidate = img.getAttribute('data-zoom-image') || 
+                          img.getAttribute('data-large') || 
+                          img.getAttribute('data-highres') || 
+                          img.getAttribute('data-old-hires') ||
+                          img.getAttribute('data-src') || 
+                          img.getAttribute('src');
+        if (candidate && !candidate.startsWith('data:')) {
+          foundImages.push(candidate);
+        }
+
+        const srcset = img.getAttribute('srcset');
+        if (srcset) {
+          const parts = srcset.split(',').map(s => s.trim().split(' ')[0]).filter(Boolean);
+          if (parts.length > 0) {
+            foundImages.push(parts[parts.length - 1]); // Highest res in srcset
+          }
+        }
+      });
+
+      if (foundImages.length > 0) {
+        break; // Successfully extracted images from page
+      }
+    } catch (e) {
+      // Continue to next proxy
+    }
+  }
+
+  // Resolve relative URLs against pageUrl base
+  const resolved = foundImages.map(imgUrl => {
+    try {
+      if (imgUrl.startsWith('//')) return 'https:' + imgUrl;
+      if (imgUrl.startsWith('/')) {
+        const parsedBase = new URL(pageUrl);
+        return `${parsedBase.origin}${imgUrl}`;
+      }
+      return imgUrl;
+    } catch (e) {
+      return imgUrl;
+    }
+  });
+
+  return resolved;
+};
+
+/**
+ * Dedicated Multi-Angle Product Image Scraper
+ * Leverages Google Search Grounding, manufacturer page parsing, and live browser validation.
+ */
+export const scrapeProductImages = async (
+    brand: string, 
+    sku: string, 
+    apiKey: string, 
+    existingUrls: string[] = [],
+    discoveredPageUrls: string[] = []
+): Promise<string[]> => {
+    const cleanBrand = (brand || '').trim();
+    const cleanSku = (sku || '').trim();
+    try {
+        const ai = new GoogleGenAI({ apiKey: getEffectiveApiKey(apiKey) });
+        const candidateUrls: string[] = [...existingUrls];
+        const targetPages: string[] = [...discoveredPageUrls];
+        
+        const prompt = `Act as an industrial visual asset recovery engine for authorized tool retailer "Wise Line Tools" in Canada.
+Task: Find REAL, working product page URLs and high-resolution photo URLs for tool:
+Brand: "${cleanBrand}"
+SKU / Model Number: "${cleanSku}"
+
+Priority Search Steps:
+1. Search specifically for "${cleanBrand} ${cleanSku}" on:
+   - Official brand site (milwaukeetool.com, dewalt.com, makitatools.com, stealthvacs.com, boschtools.com, kleintools.com, olight.com, olightstore.ca, olightstore.com)
+   - Major industrial & retail partners (homedepot.ca, homedepot.com, walmart.ca, walmart.com, lowes.com, acmetools.com, amazon.ca, amazon.com, grainger.ca, cpooutlets.com)
+2. Return exact product page URLs where this item is sold or listed.
+3. Return direct image URLs (jpg/png/webp) hosted on retailer/manufacturer CDNs (Scene7, Shopify CDN, Walmart Media, Amazon media, Home Depot THD static, Olight CDN).
+
+JSON OUTPUT FORMAT ONLY:
+{
+  "product_pages": [
+    "https://example.com/product-page-1",
+    "https://example.com/product-page-2"
+  ],
+  "direct_images": [
+    "https://example-cdn.com/product-image-hero.jpg",
+    "https://example-cdn.com/product-image-angle.jpg"
+  ]
+}`;
+
+        const response = await ai.models.generateContent({
+            model: 'gemini-3.7-flash',
+            contents: prompt,
+            config: {
+                tools: [{ googleSearch: {} }]
+            }
+        });
+
+        // 1. Extract Web URIs discovered by Google Search Grounding chunks
+        const groundingChunks = (response.candidates?.[0] as any)?.groundingMetadata?.groundingChunks || [];
+        groundingChunks.forEach((chunk: any) => {
+            const uri = chunk?.web?.uri;
+            if (uri && uri.startsWith('http')) {
+                targetPages.push(uri);
+            }
+        });
+
+        let text = response.text || '';
+        if (!text && response.candidates?.[0]?.content?.parts) {
+            text = response.candidates[0].content.parts.map((p: any) => p.text || '').join('');
+        }
+        let parsed: any = {};
+        try {
+            let jsonStr = text;
+            const match = text.match(/\`\`\`json\s*(\{[\s\S]*?\})\s*\`\`\`/);
+            if (match) jsonStr = match[1];
+            else {
+                const first = text.indexOf('{');
+                const last = text.lastIndexOf('}');
+                if (first !== -1 && last !== -1) jsonStr = text.substring(first, last + 1);
+            }
+            parsed = JSON.parse(jsonStr);
+        } catch (e) {}
+
+        if (Array.isArray(parsed.product_pages)) {
+            targetPages.push(...parsed.product_pages);
+        }
+        if (Array.isArray(parsed.direct_images)) {
+            candidateUrls.push(...parsed.direct_images);
+        }
+
+        // 2. Parallel scrape of discovered HTML product pages for real JSON-LD & OG images
+        const uniquePages = Array.from(new Set(targetPages.filter(p => p && p.startsWith('http')))).slice(0, 6);
+        if (uniquePages.length > 0) {
+            const pageScrapes = await Promise.allSettled(
+                uniquePages.map(page => scrapeImagesFromWebPage(page))
+            );
+            pageScrapes.forEach(res => {
+                if (res.status === 'fulfilled' && Array.isArray(res.value)) {
+                    candidateUrls.push(...res.value);
+                }
+            });
+        }
+
+        // 3. Clean, normalize, and deduplicate all candidate image URLs
+        const cleanedCandidates = rankImagesForHero(candidateUrls, cleanBrand, cleanSku);
+
+        if (cleanedCandidates.length === 0) {
+            return rankImagesForHero(existingUrls, cleanBrand, cleanSku);
+        }
+
+        // 4. Live in-browser validation: verify which image URLs actually load without 404s
+        const validationResults = await Promise.all(
+            cleanedCandidates.map(async (url) => {
+                const isValid = await validateImageUrl(url, 3000);
+                return { url, isValid };
+            })
+        );
+
+        const verifiedWorking = rankImagesForHero(
+            validationResults.filter(r => r.isValid).map(r => r.url),
+            cleanBrand,
+            cleanSku
+        );
+
+        if (verifiedWorking.length > 0) {
+            return verifiedWorking;
+        }
+
+        // If all online candidates were blocked or 404'd, automatically generate a studio catalog photo
+        try {
+            const studioPhoto = await generateStudioProductPhoto(cleanBrand, cleanSku, cleanSku, 'hero', apiKey);
+            if (studioPhoto) {
+                return rankImagesForHero([studioPhoto, ...cleanedCandidates.slice(0, 4)], cleanBrand, cleanSku);
+            }
+        } catch (genErr) {
+            console.warn("Studio photo generation fallback notice:", genErr);
+        }
+
+        // Return cleaned candidates if validation timed out
+        return cleanedCandidates.slice(0, 8);
+    } catch (e) {
+        console.error("Image scraping error:", e);
+        try {
+            const studioPhoto = await generateStudioProductPhoto(cleanBrand, cleanSku, cleanSku, 'hero', apiKey);
+            if (studioPhoto) return [studioPhoto];
+        } catch {}
+        return rankImagesForHero(existingUrls, cleanBrand, cleanSku);
+    }
+};
+
+/**
+ * Generates an ultra-crisp, commercial 3D studio catalog photograph of the tool
+ * isolated on seamless pure white background (#FFFFFF) using Google's Imagen / Gemini models.
+ */
+export const generateStudioProductPhoto = async (
+  brand: string,
+  title: string,
+  sku: string,
+  angleType: 'hero' | 'angle' | 'packaging' = 'hero',
+  apiKey: string
+): Promise<string> => {
+  const ai = new GoogleGenAI({ apiKey: getEffectiveApiKey(apiKey) });
+  const cleanBrand = (brand || 'Professional Industrial').trim();
+  const cleanSku = (sku || '').trim();
+  const cleanTitle = (title || 'Industrial Tool Accessory').trim();
+
+  let perspectiveDirective = 'centered front 3/4 hero perspective with soft natural contact shadows beneath it, perfectly isolated on seamless studio pure white background (#FFFFFF)';
+  if (angleType === 'angle') {
+    perspectiveDirective = 'profile side angle showcasing mechanical construction, ergonomic grip, and material finish, isolated on seamless pure white background (#FFFFFF)';
+  } else if (angleType === 'packaging') {
+    perspectiveDirective = 'complete retail unit with accessories neatly arranged next to the primary tool, isolated on seamless pure white background (#FFFFFF)';
+  }
+
+  const prompt = `Commercial e-commerce studio product photograph of ${cleanBrand} ${cleanTitle} (Model / SKU: ${cleanSku}).
+Render style: High-end industrial hardware catalog photography.
+Framing: ${perspectiveDirective}.
+Lighting: Professional multi-point studio softbox lighting, crisp specular highlights on metal and poly-carbonate surfaces, zero background noise, 8k resolution, razor-sharp focus on branding and model numbers, photorealistic.`;
+
+  // Try gemini-3.1-flash-lite-image first
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.1-flash-lite-image',
+      contents: { parts: [{ text: prompt }] },
+      config: { imageConfig: { aspectRatio: '1:1' } }
+    });
+    for (const part of response.candidates?.[0]?.content?.parts || []) {
+      if (part.inlineData) {
+        return `data:${part.inlineData.mimeType || 'image/png'};base64,${part.inlineData.data}`;
+      }
+    }
+  } catch (err1) {
+    console.warn("gemini-3.1-flash-lite-image attempt error, trying gemini-3.1-flash-image:", err1);
+    try {
+      const response2 = await ai.models.generateContent({
+        model: 'gemini-3.1-flash-image',
+        contents: { parts: [{ text: prompt }] },
+        config: { imageConfig: { aspectRatio: '1:1', imageSize: '1K' } }
+      });
+      for (const part of response2.candidates?.[0]?.content?.parts || []) {
+        if (part.inlineData) {
+          return `data:${part.inlineData.mimeType || 'image/png'};base64,${part.inlineData.data}`;
+        }
+      }
+    } catch (err2) {
+      console.error("Studio photo fallback error:", err2);
+      throw err2;
+    }
+  }
+  throw new Error("Unable to generate studio photo.");
 };
 
 export const generatePromoImage = async (product: ProductRow, apiKey: string): Promise<string> => {
-    const ai = new GoogleGenAI({ apiKey });
+    const ai = new GoogleGenAI({ apiKey: getEffectiveApiKey(apiKey) });
     
     const brand = product['Vendor'] || 'Unknown Brand';
     const sku = product['Variant SKU'] || 'Unknown SKU';
@@ -252,479 +858,407 @@ export const generatePromoImage = async (product: ProductRow, apiKey: string): P
     - Pricing Integration: ${price ? `Render the price "${price}" in a clean, bold, "Canadian Red" or "Construction Yellow" badge that looks integrated into the scene.` : 'No price badge needed.'}
     - Lighting & Environment: Use "Commercial Studio Lighting"—high contrast, sharp highlights on metal surfaces. Place products in professional environments like a clean oak workbench or a high-end job site.`;
 
-    const candidateModels = ['gemini-2.5-flash-image', 'gemini-3.1-flash-image-preview', 'gemini-3.1-flash-image'];
+    try {
+      const response = await ai.models.generateContent({
+          model: 'gemini-3.1-flash-lite-image',
+          contents: {
+              parts: [{ text: prompt }]
+          },
+          config: {
+              imageConfig: {
+                  aspectRatio: "16:9"
+              }
+          }
+      });
 
-    for (const model of candidateModels) {
-        try {
-            const response = await ai.models.generateContent({
-                model,
-                contents: {
-                    parts: [{ text: prompt }]
-                },
-                config: {
-                    imageConfig: {
-                        aspectRatio: "16:9",
-                        imageSize: "1K"
-                    }
-                }
-            });
+      for (const part of response.candidates?.[0]?.content?.parts || []) {
+          if (part.inlineData) {
+              return `data:${part.inlineData.mimeType || 'image/png'};base64,${part.inlineData.data}`;
+          }
+      }
+    } catch (err1) {
+      console.warn("Promo image gen attempt 1 error, trying gemini-3.1-flash-image:", err1);
+      const response = await ai.models.generateContent({
+          model: 'gemini-3.1-flash-image',
+          contents: {
+              parts: [{ text: prompt }]
+          },
+          config: {
+              imageConfig: {
+                  aspectRatio: "16:9",
+                  imageSize: "1K"
+              }
+          }
+      });
 
-            for (const part of response.candidates?.[0]?.content?.parts || []) {
-                if (part.inlineData) {
-                    return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
-                }
-            }
-        } catch (e) {
-            console.warn(`Promo image generation with model ${model} failed, trying next...`, e);
-        }
+      for (const part of response.candidates?.[0]?.content?.parts || []) {
+          if (part.inlineData) {
+              return `data:${part.inlineData.mimeType || 'image/png'};base64,${part.inlineData.data}`;
+          }
+      }
     }
     
-    throw new Error("Failed to generate promotional image with available models.");
+    throw new Error("Failed to generate promotional image.");
 };
 
-export const resolveDirectBrandGrounding = (brand: string, sku: string): any => {
-  const b = String(brand || '').toUpperCase();
-  const s = String(sku || '').trim().toUpperCase().replace(/[^A-Z0-9-]/g, '');
-  const cleanSku = s.replace(/^[A-Z]{2,4}-/i, '');
+export const createProductFromSku = async (brand: string, sku: string, apiKey: string, existingContext: ProductRow = {}): Promise<ProductRow[]> => {
+    const MAX_RETRIES = 3;
+    let attempt = 0;
+    
+    // Prepare context string for AI
+    const hasContext = Object.keys(existingContext).length > 0;
+    const contextStr = hasContext 
+        ? `EXISTING DATA (Prioritize this if valid, but fill gaps): ${JSON.stringify({
+            title: existingContext['Title'],
+            description_text: existingContext['Body (HTML)']?.replace(/<[^>]*>?/gm, ''), // Pass raw text to check for keywords
+            price: existingContext['Variant Price'],
+            weight: existingContext['Variant Grams'],
+            barcode: existingContext['Variant Barcode'],
+            image: existingContext['Image Src']
+        })}` 
+        : 'NO EXISTING DATA.';
 
-  // 1. BOSCH TOOLS
-  if (b.includes('BOSCH')) {
-    if (s.includes('GCM18V-12GDCN14') || s.includes('GCM18V12GDCN14') || (s.includes('GCM18V') && s.includes('12GDC'))) {
-      return {
-        title: 'Bosch GCM18V-12GDCN14 18V PROFACTOR 12" Dual-Bevel Glide Miter Saw Kit',
-        price_cad: '1149.00',
-        barcode: '000346487654',
-        weight_grams: '29000',
-        country_of_origin: 'MX',
-        hs_code: '8467.29',
-        google_category: 'Hardware > Tools > Saws > Miter Saws',
-        product_type: 'Miter Saws',
-        tags: 'BOSCH, GCM18V-12GDCN14, 18V PROFACTOR, Axial-Glide, Dual-Bevel Miter Saw, Cordless Power Tools, Wise Line Tools',
-        included_in_box: [
-          '(1) GCM18V-12GDCN14 18V PROFACTOR 12" Dual-Bevel Glide Miter Saw',
-          '(1) GBA18V120 18V CORE18V 12.0Ah PROFACTOR High Power Battery',
-          '(1) GAL18V-160C 18V 16-Amp Hell-ion Turbo Charger',
-          '(1) 12" 60-Tooth Carbide-Tipped Precision Saw Blade',
-          '(1) Material Clamp & High-Efficiency Dust Collection Bag',
-          '(1) Tool-Free Blade Change Wrench'
-        ],
-        features: [
-          'Axial-Glide System: Patented articulating glide arm delivers wider cross-cuts and velvety smooth alignment while saving up to 12 inches of workspace versus traditional slide rails.',
-          'BITURBO Brushless Technology: High-performance brushless motor and drive-train system engineered to deliver power equivalent to a 15-amp corded miter saw.',
-          'Large Cutting Capacity: Features 3.5 in. depth of cut and 14 in. width/crosscut capacity for cutting thick dimensional lumber and large baseboards.',
-          'Dual-Bevel Versatility: Features easy-to-read upfront bevel controls and detents with 0° to 47° bevel capacity left and right.',
-          'Integrated Cutline LED Worklight: Casts a shadow line across the workpiece for precise, fast blade alignment in any lighting condition.'
-        ],
-        specs: [
-          { name: 'Manufacturer', value: 'BOSCH' },
-          { name: 'Model / Part Number', value: 'GCM18V-12GDCN14' },
-          { name: 'Blade Diameter', value: '12 Inches (305 mm)' },
-          { name: 'Arbor Size', value: '1 Inch' },
-          { name: 'Voltage', value: '18V Lithium-Ion (CORE18V PROFACTOR)' },
-          { name: 'No Load RPM', value: '4,000 RPM' },
-          { name: 'Bevel Angle Range', value: '0° to 47° Left & Right' },
-          { name: 'Miter Angle Range', value: '0° to 52° Left, 0° to 60° Right' },
-          { name: 'Tool Weight', value: '64 lbs (29,000 g)' },
-          { name: 'Country of Origin', value: 'Mexico (MX)' }
-        ],
-        images: [
-          'https://cdn11.bigcommerce.com/s-c7n52h/images/stencil/1280x1280/products/33393/62508/cordlessmitersaw18vboschGCM18V12GDCN14kit4__61906.1736188930.png',
-          'https://cdn11.bigcommerce.com/s-c7n52h/images/stencil/1280x1280/products/33393/62513/Cordlessmitersaw18vGCM18V12GDCN14walkaround2__01071.1629318423.png',
-          'https://cdn11.bigcommerce.com/s-c7n52h/images/stencil/1280x1280/products/33393/62515/cordlessmitersaw18vboschGCM18V12GDCN14beauty6__88333.1629318428.png',
-          'https://cdn11.bigcommerce.com/s-c7n52h/images/stencil/1280x1280/products/33393/62512/Cordlessmitersaw18vGCM18V12GDCN14_extended_bare2__19980.1629318422.png',
-          'https://cdn11.bigcommerce.com/s-c7n52h/images/stencil/1280x1280/products/33393/62511/Cordlessmitersaw18vGCM18V12GDCN14_tilt2__56790.1629318419.png',
-          'https://cdn11.bigcommerce.com/s-c7n52h/images/stencil/1280x1280/products/33393/62514/Cordlessmitersaw18vGCM18V12GDCN14_HMI2__23754.1629318425.png',
-          'https://cdn11.bigcommerce.com/s-c7n52h/images/stencil/1280x1280/products/33393/62507/Cordlessmitersaw18vGCM18V12GDCN_2_x_42__08957.1629318413.png',
-          'https://cdn11.bigcommerce.com/s-c7n52h/images/stencil/1280x1280/products/33393/62509/Cordlessmitersaw18vGCM18V12GDCN_2_x_82__22673.1629318413.png'
-        ]
-      };
-    }
-    if (s.includes('LR8') || s.includes('LR-8')) {
-      return {
-        title: 'Bosch LR8 Dual-Sided Line Laser Receiver for Green and Red Beam Lasers',
-        price_cad: '139.99',
-        barcode: '000346648753',
-        weight_grams: '420',
-        country_of_origin: 'MY',
-        hs_code: '9031.80',
-        google_category: 'Hardware > Tools > Measuring Tools & Sensors > Level Sensors & Laser Receivers',
-        product_type: 'Laser Receivers',
-        tags: 'BOSCH, LR8, Laser Receiver, Green Beam, Red Beam, Leveling, Wise Line Tools',
-        included_in_box: [
-          '(1) LR8 Line Laser Receiver',
-          '(1) Quick-Release Mounting Bracket',
-          '(2) AA Batteries',
-          '(1) Protective Belt Pouch'
-        ],
-        features: [
-          'Dual-Beam Compatibility: Detects both green-beam and red-beam Bosch line lasers over extended distances.',
-          'Extended Working Range: Extends laser line reception up to 330 ft. diameter in bright ambient light and outdoor environments.',
-          'Dual-Sided Backlit LCD Display: Clear visual readout on front and back allows easy viewing from either side during alignment.',
-          'Audible Detection Indicator: Volume-adjustable audio signal provides clear acoustic feedback when centered on the laser line.',
-          'Top-Mounted Heavy-Duty Magnets: Securely adheres to steel studs and drop ceiling track for hands-free operation.'
-        ],
-        specs: [
-          { name: 'Brand', value: 'BOSCH' },
-          { name: 'Model Number', value: 'LR8' },
-          { name: 'Laser Diode Compatibility', value: 'Red (630–650 nm) & Green (500–540 nm)' },
-          { name: 'Working Range', value: 'Up to 330 ft. (100 m) Diameter' },
-          { name: 'Ingress Protection', value: 'IP54 (Dust & Splash Resistant)' }
-        ],
-        images: [
-          'https://cdn11.bigcommerce.com/s-c7n52h/images/stencil/1280x1280/products/26987/42347/Untitled-1__54613.1545160992.jpg'
-        ]
-      };
-    }
-  }
-
-  // 2. BLUESTREAK MAGNETIC SWEEPERS
-  if (b.includes('BLUESTREAK') || b.includes('BLUE STREAK')) {
-    if (s.includes('PSPRO12') || s.includes('PSPR012') || s.includes('POW-PSPRO12')) {
-      return {
-        title: 'Bluestreak POW-PSPRO12 Powerstik Pro 12" Handheld Magnetic Sweeper',
-        price_cad: '259.00',
-        barcode: '062805510101',
-        weight_grams: '2720',
-        country_of_origin: 'CA',
-        hs_code: '8505.11',
-        google_category: 'Hardware > Tools > Sweepers > Magnetic Sweepers',
-        product_type: 'Magnetic Sweepers',
-        tags: 'Bluestreak, POW-PSPRO12, Powerstik Pro, Magnetic Sweeper, Handheld Sweeper, Clean-Up Tools, Wise Line Tools',
-        included_in_box: [
-          '(1) Bluestreak POW-PSPRO12 12" Powerstik Pro Magnetic Sweeper',
-          '(1) Quick-Release T-Handle Clean-Off Mechanism',
-          '(1) Heavy-Duty Wall Mounting Storage Bracket'
-        ],
-        features: [
-          'Instant Debris Release: High-strength sliding internal magnet core instantly drops all collected nails, screws, and metal shavings with one pull.',
-          'Permanent Rare-Earth & Ceramic Magnet Core: Guaranteed never to lose magnetic charge under standard operating conditions.',
-          'Aircraft-Grade Anodized Aluminum Housing: Lightweight, non-rusting, and impact-resistant for harsh jobsite environments.',
-          'Ergonomic Non-Slip Grip: Designed for continuous one-handed clean-up around workshops, fabrication bays, and roofing jobsites.'
-        ],
-        specs: [
-          { name: 'Manufacturer', value: 'Bluestreak Equipment' },
-          { name: 'Model / Part Number', value: 'POW-PSPRO12' },
-          { name: 'Sweeping Width', value: '12 Inches (30.5 cm)' },
-          { name: 'Lifting Capacity', value: 'Up to 30 lbs of Metal Hardware' },
-          { name: 'Housing Material', value: 'Anodized Aircraft Aluminum' },
-          { name: 'Country of Origin', value: 'Canada (CA)' }
-        ],
-        images: [
-          'https://cdn11.bigcommerce.com/s-c7n52h/images/stencil/1280x1280/products/92362/143112/VEL-WB-600-G-C__84540.1787857023.jpg'
-        ]
-      };
-    }
-  }
-
-  // 3. WATSON GLOVES
-  if (b.includes('WATSON') && (s.includes('2775') || s.toLowerCase().includes('sexy'))) {
-    return {
-      title: 'Watson Gloves 2775 Sexy Back - Heavy Metal MIG Welding Gloves',
-      price_cad: '28.99',
-      barcode: '065537815739',
-      weight_grams: '320',
-      country_of_origin: 'CN',
-      hs_code: '4203.29',
-      google_category: 'Business & Industrial > Work Safety Protective Gear > Protective Gloves',
-      product_type: 'Welding Gloves',
-      tags: 'Watson Gloves, 2775, Sexy Back, MIG Welding Gloves, Leather Safety Gloves, Wise Line Tools',
-      included_in_box: [
-        '(1 Pair) Watson Gloves 2775 Sexy Back MIG Welding Gloves'
-      ],
-      features: [
-        'Made for MIG Welding: Engineered for heavy-duty welding, fabrication, and metalworking.',
-        'Full-Grain Cowhide Leather: Premium grain palm provides exceptional dexterity and abrasion resistance.',
-        'Kevlar® Heat-Resistant Stitching: Sewn with genuine Kevlar® thread for superior seam strength and burnout protection.',
-        'Gauntlet Safety Cuff: Heavy split cowhide cuff with pulse protector guards wrist and forearm against sparks and heat.'
-      ],
-      specs: [
-        { name: 'Brand', value: 'Watson Gloves' },
-        { name: 'Model Number', value: '2775 (Sexy Back)' },
-        { name: 'Material', value: 'Full-Grain Cowhide & Split Leather' },
-        { name: 'Stitching', value: '100% Kevlar® Flame-Resistant Thread' },
-        { name: 'Heat Rating', value: 'ANSI Conductive Heat Level 3' }
-      ],
-      images: [
-        'https://www.watsongloves.com/wp-content/uploads/2012/11/2775-Sexy-Back-1.png'
-      ]
-    };
-  }
-
-  // 4. WIHA TOOLS
-  if (b.includes('WIHA') && (cleanSku === '38048' || cleanSku.includes('38048') || s.includes('STUBBY'))) {
-    return {
-      title: 'Wiha 38048 SoftFinish® Stubby Pop-Up Bit Holder Screwdriver Set (6-Piece)',
-      price_cad: '33.99',
-      barcode: '084705380485',
-      weight_grams: '140',
-      country_of_origin: 'DE',
-      hs_code: '8205.40',
-      google_category: 'Hardware > Tools > Screwdrivers',
-      product_type: 'Screwdrivers & Bit Sets',
-      tags: 'Wiha, 38048, SoftFinish, Stubby Screwdriver, Pop-Up Bit Holder, Precision Hand Tools, Wise Line Tools',
-      included_in_box: [
-        '(1) Wiha SoftFinish® Stubby 1/4" Magnetic Bit Holder Screwdriver',
-        '(2) Phillips Insert Bits: #1, #2',
-        '(2) Square (Robertson) Insert Bits: #1, #2',
-        '(2) Slotted Insert Bits: 4.5mm, 6.5mm'
-      ],
-      features: [
-        'SoftFinish® Cushion Grip: Patented multi-component handle engineered for maximum torque transfer and hand comfort.',
-        'Pop-Up Bit Storage: Internal spring-loaded magazine provides organized storage and instant access to 6 insert bits.',
-        'Stubby Compact Profile: Short handle allows effortless leverage and fastener driving in tight, confined spaces.',
-        'Wiha CVM Tool Steel: Precision-machined bit tips from premium Chrome-Vanadium-Molybdenum steel for exact fastener fit.'
-      ],
-      specs: [
-        { name: 'Brand', value: 'WIHA' },
-        { name: 'Part Number', value: '38048 (WIH-38048)' },
-        { name: 'Drive Size', value: '1/4" Hex Magnetic Bit Holder' },
-        { name: 'Handle Type', value: 'SoftFinish® Stubby Pop-Up' },
-        { name: 'Country of Origin', value: 'Germany (DE)' }
-      ],
-      images: [
-        'https://cdn11.bigcommerce.com/s-c7n52h/images/stencil/1280x1280/products/23837/28972/38048-3__44871.1467061609__51686.1490273242.jpg'
-      ]
-    };
-  }
-
-  return null;
-};
-
-export const createProductFromSku = async (
-    brand: string, 
-    sku: string, 
-    modelHint?: string, 
-    existingContext: ProductRow = {}
-): Promise<ProductRow[]> => {
-    const directGrounding = resolveDirectBrandGrounding(brand, sku);
-
-    try {
-        console.log(`[AI Synthesis] Initiating server-side synthesis for ${brand} ${sku}...`);
-        const response = await fetch('/api/ai/synthesize', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                brand,
-                sku,
-                systemTitleHint: modelHint || existingContext['Title'] || '',
-                existingContext
-            })
-        });
-
-        const result = await response.json();
-
-        if (!response.ok || !result.success || !result.data) {
-            if (result.error && result.error.includes('allowance has temporarily been reached')) {
-                throw new Error(result.error);
-            }
-            throw new Error(result.error || 'Failed to synthesize product data.');
-        }
-
-        const { modelUsed, isFallback, sourceUrls, data, images: serverDiscoveredImages } = result;
-        console.log(`[AI Synthesis Success] Model: ${modelUsed} (${isFallback ? 'FREE FALLBACK' : 'PRIMARY MODEL'})`);
-
-        // Perform image verification & scraping
-        let scrapedImages: string[] = [];
+    while (attempt < MAX_RETRIES) {
+        attempt++;
         try {
-            const scrapeRes = await fetch('/api/media/scrape', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    brand,
-                    sku,
-                    candidateUrls: [
-                        ...(Array.isArray(data.images) ? data.images : []),
-                        ...(serverDiscoveredImages || [])
-                    ].filter(Boolean)
-                })
-            });
-            if (scrapeRes.ok) {
-                const scrapeJson = await scrapeRes.json();
-                if (scrapeJson.images && Array.isArray(scrapeJson.images)) {
-                    scrapedImages = scrapeJson.images;
+            const ai = new GoogleGenAI({ apiKey: getEffectiveApiKey(apiKey) });
+            
+            const prompt = `Act as an elite world-class industrial product data architect and lead SEO strategist for authorized tool distributor "Wise Line Tools". 
+            Your mission: Synthesize the absolute highest quality product data and visual catalog assets for: "${brand} ${sku}".
+            
+            ${contextStr}
+
+            1. SEARCH & RECOVERY STRATEGY (CRITICAL):
+            - Perform Google Searches for "${brand} ${sku}", "${brand} ${sku} specifications", "${brand} ${sku} price canada", and "${brand} ${sku} product images gallery".
+            - Target official manufacturer portals (milwaukeetool.com/ca, dewalt.com/ca, makitatools.com/ca, boschtools.com, kleintools.com, olight.com, olightstore.ca).
+            - Target authorized dealers (Home Depot Canada, Acme Tools, Grainger Canada, Tool Nut).
+
+            2. MULTI-IMAGE ASSET EXTRACTION (HIGHEST PRIORITY):
+            - Extract 4 to 8 REAL, HIGH-RESOLUTION product images (.jpg, .png, .webp).
+            - Cover multiple distinct angles and views:
+              * Angle 1: Primary Hero Shot (Tool isolated on white background)
+              * Angle 2: 3D Perspective / Side Angle
+              * Angle 3: Kit / Case / What's Included (Batteries, charger, case, accessories)
+              * Angle 4: Close-up mechanism / chuck / motor / controls
+              * Angle 5: Application / Jobsite in action
+            - NEVER invent fake domains. Return direct CDN image URLs from manufacturer media CDNs (Scene7, Milwaukee Media, SBD Media, Shopify CDN, Home Depot CDN, Olight CDN).
+            - Exclude logos, banners, icons, and low-res thumbnails.
+
+            3. CANADIAN MARKET INTELLIGENCE:
+            - If price is missing in EXISTING DATA, research exact current pricing (MSRP) from Canadian competitors.
+            - Resulting price MUST be in CAD (numbers only).
+
+            4. DEEP INDUSTRIAL METADATA:
+            - Official GTIN/UPC Barcode (12-13 digits). If no verified barcode exists, leave empty "".
+            - Product Weight in Grams.
+            - Country of Origin (2-letter ISO).
+            - HS Tariff Code.
+            - Google Product Category.
+            - Product Type.
+
+            5. CONTENT ARCHITECTURE (HTML):
+            - Professional HTML Description.
+            - Start with a strong introductory paragraph (NO "Product Overview" heading).
+            - Include: Performance Features (<ul>), Technical Specifications (<table>), What's Included.
+            - Include: Accurate Manufacturer Warranty Block (<div class="product-warranty-block">) at the bottom.
+
+            6. SEO & TAXONOMY:
+            - Title: "[Brand] [SKU] [Product Name]".
+            - Tags: Comma separated.
+
+            7. MANUFACTURER WARRANTY RESEARCH (CRITICAL):
+            - Research and verify the precise official manufacturer warranty terms for this brand and product type in Canada.
+            - Return specific period and coverage details.
+
+            OUTPUT JSON ONLY:
+            {
+              "title": "...",
+              "price_cad": "...",
+              "body_html": "...",
+              "warranty_period": "...",
+              "warranty_details": "...",
+              "barcode": "...",
+              "weight_grams": "...",
+              "tags": "...",
+              "product_type": "...",
+              "country_of_origin": "...",
+              "hs_code": "...",
+              "google_category": "...",
+              "seo_title": "...",
+              "seo_description": "...",
+              "included_in_box": ["..."],
+              "product_page_url": "The actual URL of the manufacturer or main retailer product page found.",
+              "competitor_urls": ["URL1", "URL2"],
+              "images": [
+                "https://.../main_hero.jpg",
+                "https://.../angle_view.jpg",
+                "https://.../kit_case.jpg",
+                "https://.../close_up.jpg",
+                "https://.../in_action.jpg"
+              ]
+            }`;
+
+            let response: any;
+            try {
+                response = await ai.models.generateContent({
+                    model: 'gemini-3.7-flash', 
+                    contents: prompt,
+                    config: { 
+                        tools: [{ googleSearch: {} }]
+                    }
+                });
+            } catch (searchErr) {
+                console.warn("Search-grounded generation attempt failed, falling back to direct prompt:", searchErr);
+                response = await ai.models.generateContent({
+                    model: 'gemini-3.7-flash',
+                    contents: prompt
+                });
+            }
+
+            let text = response?.text || '';
+            if (!text && response?.candidates?.[0]?.content?.parts) {
+                text = response.candidates[0].content.parts.map((p: any) => p.text || '').join('');
+            }
+            if (!text) {
+                // Try fallback without tools if text is still empty
+                try {
+                    const fallbackResponse = await ai.models.generateContent({
+                        model: 'gemini-3.7-flash',
+                        contents: prompt
+                    });
+                    text = fallbackResponse?.text || fallbackResponse?.candidates?.[0]?.content?.parts?.map((p: any) => p.text || '').join('') || '';
+                } catch (fbErr) {
+                    console.error("Direct prompt fallback failed:", fbErr);
                 }
             }
-        } catch (scrapeErr) {
-            console.warn('Scraping notice:', scrapeErr);
-        }
+            if (!text) throw new Error("Received empty response from Gemini API");
 
-        const candidateImages = [
-            ...(directGrounding?.images || []),
-            ...scrapedImages,
-            ...(serverDiscoveredImages || []),
-            ...(Array.isArray(data.images) ? data.images : [])
-        ];
-
-        const validImages: string[] = [];
-        const seenAssetKeys = new Set<string>();
-
-        for (const rawImg of candidateImages) {
-            const cleaned = cleanImageUrl(rawImg);
-            if (!cleaned) continue;
-            const assetKey = getCanonicalAssetKey(cleaned);
-            if (!seenAssetKeys.has(assetKey)) {
-                seenAssetKeys.add(assetKey);
-                validImages.push(cleaned);
-            }
-        }
-
-        let handle = existingContext['Handle'];
-        if (!handle) {
-            let baseName = (data.title || existingContext['Title'] || `${brand}-${sku}`).toLowerCase()
-                .replace(/[^a-z0-9]+/g, '-')
-                .replace(/^-+|-+$/g, '');
-                
-            const skuSlug = sku.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-            if (!baseName.includes(skuSlug)) {
-                handle = `${baseName}-${skuSlug}`;
+            let jsonStr = text;
+            const match = text.match(/\`\`\`json\s*(\{[\s\S]*?\})\s*\`\`\`/);
+            if (match) {
+                jsonStr = match[1];
             } else {
-                handle = baseName;
+                const firstBrace = text.indexOf('{');
+                const lastBrace = text.lastIndexOf('}');
+                if (firstBrace !== -1 && lastBrace !== -1) {
+                    jsonStr = text.substring(firstBrace, lastBrace + 1);
+                }
             }
-        }
+                
+            let data: any = {};
+            try {
+                data = JSON.parse(jsonStr);
+            } catch (parseError) {
+                 const match = text.match(/\{[\s\S]*\}/);
+                 if (match) {
+                     try { data = JSON.parse(match[0]); } catch(e) {}
+                 }
+            }
+            
+            // Extract discovered web URIs from Google Search Grounding
+            const discoveredPages: string[] = [];
+            const groundingChunks = (response.candidates?.[0] as any)?.groundingMetadata?.groundingChunks || [];
+            groundingChunks.forEach((chunk: any) => {
+                const uri = chunk?.web?.uri;
+                if (uri && uri.startsWith('http')) {
+                    discoveredPages.push(uri);
+                }
+            });
 
-        const aiPrice = data.price_cad ? String(data.price_cad).replace(/[^0-9.]/g, '') : (directGrounding?.price_cad || '');
-        const existingPrice = existingContext['Variant Price'] ? String(existingContext['Variant Price']).replace(/[^0-9.]/g, '') : '';
-        const finalPrice = existingPrice && parseFloat(existingPrice) > 0 ? existingPrice : aiPrice;
+            if (data.product_page_url) discoveredPages.push(data.product_page_url);
+            if (Array.isArray(data.competitor_urls)) discoveredPages.push(...data.competitor_urls);
 
-        const aiGrams = data.weight_grams ? String(data.weight_grams).replace(/[^0-9]/g, '') : (directGrounding?.weight_grams || '');
-        const existingGrams = existingContext['Variant Grams'] ? String(existingContext['Variant Grams']).replace(/[^0-9]/g, '') : '';
-        const finalGrams = existingGrams && parseInt(existingGrams) > 0 ? existingGrams : aiGrams;
+            // Extract and clean raw image URLs
+            let rawImages: string[] = (Array.isArray(data.images) ? data.images.map((img: any) => String(img || '')) : []);
+            if (existingContext['Image Src'] && !existingContext['Image Src'].includes('placehold.co')) {
+                const existingImages = String(existingContext['Image Src']).split(/[|,\n;]/).map(s => s.trim()).filter(s => s);
+                rawImages = [...existingImages, ...rawImages];
+            }
+            
+            let uniqueImages = deduplicateImages(rawImages);
 
-        const finalBarcode = (existingContext['Variant Barcode'] && String(existingContext['Variant Barcode']).length > 6) 
-            ? existingContext['Variant Barcode'] 
-            : (data.barcode ? `'${String(data.barcode).replace(/[^0-9]/g, '')}` : (directGrounding?.barcode ? `'${directGrounding.barcode}` : ''));
+            // Run deep visual asset scraper and live HTML parser on discovered retailer/manufacturer pages
+            try {
+                const scraped = await scrapeProductImages(brand, sku, apiKey, uniqueImages, discoveredPages);
+                if (scraped && scraped.length > 0) {
+                    uniqueImages = deduplicateImages([...uniqueImages, ...scraped]);
+                }
+            } catch (scrapeErr) {
+                console.warn("Secondary image scrape fallback notice:", scrapeErr);
+            }
 
-        let cleanBody = data.body_html || existingContext['Body (HTML)'] || '';
-        cleanBody = cleanBody
-            .replace(/<h3>Product Overview<\/h3>/gi, '')
-            .replace(/<h3>Overview<\/h3>/gi, '')
-            .replace(/<h2>Product Overview<\/h2>/gi, '')
-            .replace(/<h2>Overview<\/h2>/gi, '')
-            .replace(/<strong>Product Overview<\/strong>/gi, '')
-            .replace(/<b>Product Overview<\/b>/gi, '')
-            .replace(/(?:As an authorized[^,]*,?\s*)?(?:Wise\s*Line\s*Tools\s*(?:presents|is pleased to present|proudly presents|introduces|offers)\s*(?:the\s*)?)/gi, '')
-            .replace(/<p>\s*Wise Line Tools\s*(?:presents|is pleased to present|proudly presents|introduces|offers)\s*(?:the\s*)?/gi, '<p>The ')
-            .replace(/Wise Line Tools presents\s*(?:the\s*)?/gi, 'The ');
+            // Verify candidates in browser to weed out 404s
+            if (uniqueImages.length > 0) {
+                const validationCheck = await Promise.all(
+                    uniqueImages.slice(0, 8).map(async (u: string) => {
+                        const ok = await validateImageUrl(u, 2500);
+                        return { url: u, ok };
+                    })
+                );
+                const workingOnes = rankImagesForHero(
+                    validationCheck.filter(v => v.ok).map(v => v.url),
+                    brand,
+                    sku
+                );
+                if (workingOnes.length > 0) {
+                    uniqueImages = workingOnes;
+                }
+            }
 
-        const warrantyText = resolveBrandWarranty(brand, data.product_type || directGrounding?.product_type, data.title || directGrounding?.title, sku, data.warranty);
-        if (!cleanBody.toLowerCase().includes('warranty')) {
-            cleanBody += `\n<h3>Manufacturer Warranty</h3>\n<p>${warrantyText}</p>`;
-        }
+            // If still no valid images found, generate a studio photo so the product is never blank
+            if (uniqueImages.length === 0) {
+                try {
+                    const studioPhoto = await generateStudioProductPhoto(brand, data.title || sku, sku, 'hero', apiKey);
+                    if (studioPhoto) {
+                        uniqueImages = [studioPhoto];
+                    }
+                } catch (genErr) {
+                    console.warn("Product studio photo initialization notice:", genErr);
+                }
+            } else {
+                uniqueImages = rankImagesForHero(uniqueImages, brand, sku);
+            }
 
-        const estimatedCost = finalPrice && parseFloat(finalPrice) > 0 
-            ? (parseFloat(finalPrice) * 0.70).toFixed(2) 
-            : '';
+            let handle = existingContext['Handle'];
+            if (!handle) {
+                let baseName = (data.title || existingContext['Title'] || `${brand}-${sku}`).toLowerCase()
+                    .replace(/[^a-z0-9]+/g, '-')
+                    .replace(/^-+|-+$/g, '');
+                    
+                const skuSlug = sku.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+                if (!baseName.includes(skuSlug)) {
+                    handle = `${baseName}-${skuSlug}`;
+                } else {
+                    handle = baseName;
+                }
+            }
+            
+            const safeRawAssets = rawImages.filter((u: any) => typeof u === 'string' && u && !u.startsWith('data:image') && u.length < 3000);
+            
+            // Use existing price if valid and AI didn't find one or if existing is preferred
+            const aiPrice = data.price_cad ? String(data.price_cad).replace(/[^0-9.]/g, '') : '';
+            const existingPrice = existingContext['Variant Price'] ? String(existingContext['Variant Price']).replace(/[^0-9.]/g, '') : '';
+            const finalPrice = existingPrice && parseFloat(existingPrice) > 0 ? existingPrice : aiPrice;
 
-        const mainRow: ProductRow = {
-            ...existingContext,
-            'Handle': handle,
-            'Title': data.title || existingContext['Title'] || directGrounding?.title || `${brand} ${sku}`,
-            'Body (HTML)': cleanBody,
-            'Vendor': normalizeVendor(brand),
-            'Product Category': data.google_category || existingContext['Product Category'] || directGrounding?.google_category || 'Hardware > Tools',
-            'Type': data.product_type || existingContext['Type'] || directGrounding?.product_type || 'Hardware',
-            'Tags': data.tags || existingContext['Tags'] || directGrounding?.tags || `${brand}, ${sku}, Wise Line Tools`,
-            'Published': 'TRUE',
-            'Option1 Name': existingContext['Option1 Name'] || 'Title',
-            'Option1 Value': existingContext['Option1 Value'] || 'Default Title',
-            'Option2 Name': existingContext['Option2 Name'] || '',
-            'Option2 Value': existingContext['Option2 Value'] || '',
-            'Option3 Name': existingContext['Option3 Name'] || '',
-            'Option3 Value': existingContext['Option3 Value'] || '',
-            'Variant SKU': sku,
-            'Variant Grams': finalGrams,
-            'Variant Inventory Tracker': 'shopify',
-            'Variant Inventory Qty': existingContext['Variant Inventory Qty'] || '10',
-            'Variant Inventory Policy': 'continue', 
-            'Variant Fulfillment Service': existingContext['Variant Fulfillment Service'] || 'manual',
-            'Variant Price': finalPrice,
-            'Variant Compare At Price': existingContext['Variant Compare At Price'] || '',
-            'Variant Requires Shipping': 'true',
-            'Variant Taxable': 'true',
-            'Unit Price Total Measure': existingContext['Unit Price Total Measure'] || '',
-            'Unit Price Total Measure Unit': existingContext['Unit Price Total Measure Unit'] || '',
-            'Unit Price Base Measure': existingContext['Unit Price Base Measure'] || '',
-            'Unit Price Base Measure Unit': existingContext['Unit Price Base Measure Unit'] || '',
-            'Variant Barcode': finalBarcode,
-            'Variant HS Code': data.hs_code || existingContext['Variant HS Code'] || directGrounding?.hs_code || '',
-            'Variant Country of Origin': data.country_of_origin || existingContext['Variant Country of Origin'] || directGrounding?.country_of_origin || 'CA',
-            'Variant Image': existingContext['Variant Image'] || '',
-            'Image Src': validImages.join(' | '),
-            'Image Position': 1,
-            'Image Alt Text': data.title || `${brand} ${sku}`,
-            'Gift Card': 'false',
-            'SEO Title': data.seo_title || data.title || `${brand} ${sku} | Wise Line Tools Canada`,
-            'SEO Description': data.seo_description || `Buy the official ${brand} ${sku} at Wise Line Tools Canada. Authorized distributor with warranty and fast shipping.`,
-            'Google Shopping / Google Product Category': data.google_category || directGrounding?.google_category || 'Hardware > Tools',
-            'Google Shopping / Condition': 'new',
-            'Variant Weight Unit': 'g',
-            'Variant Tax Code': existingContext['Variant Tax Code'] || '',
-            'Cost per item': existingContext['Cost per item'] || estimatedCost,
-            'Status': existingContext['Status'] || 'draft',
-            '_Product_Page': (sourceUrls && sourceUrls[0]) || '',
-            '_Competitor_Links': (sourceUrls || []).join(' | '),
-            'Included In Box': Array.isArray(data.included_in_box) ? data.included_in_box.join(', ') : (data.included_in_box || '')
-        };
+            const aiGrams = data.weight_grams ? String(data.weight_grams).replace(/[^0-9]/g, '') : '';
+            const existingGrams = existingContext['Variant Grams'] ? String(existingContext['Variant Grams']).replace(/[^0-9]/g, '') : '';
+            const finalGrams = existingGrams && parseInt(existingGrams) > 0 ? existingGrams : aiGrams;
 
-        return [mainRow];
+            const finalBarcode = (existingContext['Variant Barcode'] && String(existingContext['Variant Barcode']).length > 6) 
+                ? existingContext['Variant Barcode'] 
+                : (data.barcode ? `'${data.barcode}` : '');
 
-    } catch (err: any) {
-        console.error('Synthesis error:', err.message || err);
+            // Clean Body HTML to ensure "Product Overview" header is removed if AI generates it
+            let cleanBody = data.body_html || existingContext['Body (HTML)'] || '';
+            cleanBody = cleanBody
+                .replace(/<h3>Product Overview<\/h3>/gi, '')
+                .replace(/<h3>Overview<\/h3>/gi, '')
+                .replace(/<h2>Product Overview<\/h2>/gi, '')
+                .replace(/<h2>Overview<\/h2>/gi, '')
+                .replace(/<strong>Product Overview<\/strong>/gi, '')
+                .replace(/<b>Product Overview<\/b>/gi, '');
 
-        // Fallback to directGrounding if available
-        if (directGrounding) {
-            console.log(`[Fallback] Using Direct Brand Grounding for ${brand} ${sku}`);
-            const featuresHtml = (directGrounding.features && directGrounding.features.length > 0)
-                ? `<h3>Key Features & Performance</h3>\n<ul>\n${directGrounding.features.map((f: string) => `  <li><strong>${f.split(':')[0]}:</strong>${f.split(':').slice(1).join(':') || f}</li>`).join('\n')}\n</ul>`
-                : '';
+            // Researched accurate warranty block synthesis
+            const warrantyInfo = generateWarrantyBlock(
+                brand, 
+                sku, 
+                data.warranty_period, 
+                data.warranty_details, 
+                data.title || existingContext['Title'], 
+                data.product_type || existingContext['Type']
+            );
 
-            const specsHtml = (directGrounding.specs && directGrounding.specs.length > 0)
-                ? `<h3>Technical Specifications</h3>\n<table style="width: 100%; border-collapse: collapse; margin-top: 10px;">\n  <tbody>\n${directGrounding.specs.map((s: any) => `    <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 8px 12px; font-weight: 600; color: #475569; width: 35%;">${s.name}</td><td style="padding: 8px 12px; color: #1e293b;">${s.value}</td></tr>`).join('\n')}\n  </tbody>\n</table>`
-                : '';
+            // Ensure the Warranty block is placed at the bottom of the description cleanly
+            if (cleanBody && !cleanBody.includes('product-warranty-block') && !cleanBody.includes('Manufacturer Warranty & Guarantee') && !cleanBody.includes('Manufacturer Warranty & Support')) {
+                cleanBody = `${cleanBody.trim()}\n\n${warrantyInfo.html}`;
+            } else if (!cleanBody) {
+                cleanBody = warrantyInfo.html;
+            }
 
-            const includesHtml = (directGrounding.included_in_box && directGrounding.included_in_box.length > 0)
-                ? `<h3>What's Included In The Box</h3>\n<ul>\n${directGrounding.included_in_box.map((i: string) => `  <li>${i}</li>`).join('\n')}\n</ul>`
-                : '';
+            // Construct standard Shopify row with resolved product category and CONTINUE inventory policy
+            const titleVal = data.title || existingContext['Title'] || `${brand} ${sku}`;
+            const tagsVal = data.tags || existingContext['Tags'] || '';
+            const resolvedCategory = resolveShopifyToolCategory(
+                titleVal,
+                brand,
+                sku,
+                tagsVal,
+                data.google_category || existingContext['Product Category'] || ''
+            );
 
-            const warrantyText = resolveBrandWarranty(brand, directGrounding.product_type, directGrounding.title, sku);
-            const warrantyHtml = `<h3>Manufacturer Warranty & Support</h3>\n<p>${warrantyText}</p>`;
-
-            const fullDescription = `<p>The <strong>${directGrounding.title}</strong> is engineered to deliver professional tradespeople unmatched precision, power, and jobsite reliability. Purpose-built for demanding commercial and industrial applications.</p>\n\n${featuresHtml}\n\n${specsHtml}\n\n${includesHtml}\n\n${warrantyHtml}`;
-
-            let handle = (directGrounding.title || `${brand}-${sku}`).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-
-            return [{
+            const mainRow: ProductRow = {
                 ...existingContext,
                 'Handle': handle,
-                'Title': directGrounding.title,
-                'Body (HTML)': fullDescription,
+                'Title': titleVal,
+                'Body (HTML)': cleanBody,
                 'Vendor': normalizeVendor(brand),
-                'Product Category': directGrounding.google_category || 'Hardware > Tools',
-                'Type': directGrounding.product_type || 'Hardware',
-                'Tags': directGrounding.tags || `${brand}, ${sku}, Wise Line Tools`,
+                'Product Category': resolvedCategory,
+                'Type': data.product_type || existingContext['Type'] || resolvedCategory,
+                'Tags': tagsVal,
                 'Published': 'TRUE',
-                'Option1 Name': 'Title',
-                'Option1 Value': 'Default Title',
+                'Option1 Name': existingContext['Option1 Name'] || 'Title',
+                'Option1 Value': existingContext['Option1 Value'] || 'Default Title',
+                'Option2 Name': existingContext['Option2 Name'] || '',
+                'Option2 Value': existingContext['Option2 Value'] || '',
+                'Option3 Name': existingContext['Option3 Name'] || '',
+                'Option3 Value': existingContext['Option3 Value'] || '',
                 'Variant SKU': sku,
-                'Variant Grams': directGrounding.weight_grams || '0',
-                'Variant Inventory Tracker': 'shopify',
-                'Variant Inventory Policy': 'continue',
-                'Variant Fulfillment Service': 'manual',
-                'Variant Price': directGrounding.price_cad || '0.00',
-                'Variant Compare At Price': '',
-                'Variant Requires Shipping': 'TRUE',
-                'Variant Taxable': 'TRUE',
-                'Variant Barcode': directGrounding.barcode ? `'${directGrounding.barcode}` : '',
-                'Image Src': (directGrounding.images || []).join(' | '),
+                'Variant Grams': finalGrams,
+                'Variant Inventory Tracker': existingContext['Variant Inventory Tracker'] || 'shopify',
+                'Variant Inventory Qty': existingContext['Variant Inventory Qty'] || '',
+                'Variant Inventory Policy': 'continue', 
+                'Variant Fulfillment Service': existingContext['Variant Fulfillment Service'] || 'manual',
+                'Variant Price': finalPrice,
+                'Variant Compare At Price': existingContext['Variant Compare At Price'] || '',
+                'Variant Requires Shipping': existingContext['Variant Requires Shipping'] || 'true',
+                'Variant Taxable': existingContext['Variant Taxable'] || 'true',
+                'Unit Price Total Measure': existingContext['Unit Price Total Measure'] || '',
+                'Unit Price Total Measure Unit': existingContext['Unit Price Total Measure Unit'] || '',
+                'Unit Price Base Measure': existingContext['Unit Price Base Measure'] || '',
+                'Unit Price Base Measure Unit': existingContext['Unit Price Base Measure Unit'] || '',
+                'Variant Barcode': finalBarcode,
+                'Variant HS Code': data.hs_code || existingContext['Variant HS Code'] || '',
+                'Variant Country of Origin': data.country_of_origin || existingContext['Variant Country of Origin'] || '',
+                'Variant Image': existingContext['Variant Image'] || '',
+                'Image Src': uniqueImages.join(' | '), // Store all images here so downloadCSV can split them
                 'Image Position': 1,
-                'Image Alt Text': directGrounding.title,
-                'Cost per item': (parseFloat(directGrounding.price_cad || '0') * 0.7).toFixed(2),
-                'Status': 'draft'
-            }];
-        }
+                'Image Alt Text': '',
+                'Gift Card': existingContext['Gift Card'] || 'false',
+                'SEO Title': data.seo_title || existingContext['SEO Title'] || '',
+                'SEO Description': data.seo_description || existingContext['SEO Description'] || '',
+                'Google Shopping / Google Product Category': data.google_category || '',
+                'Google Shopping / Condition': 'new',
+                'Variant Weight Unit': existingContext['Variant Weight Unit'] || 'g',
+                'Variant Tax Code': existingContext['Variant Tax Code'] || '',
+                'Cost per item': existingContext['Cost per item'] || '',
+                'Status': existingContext['Status'] || 'draft',
+                'Warranty': warrantyInfo.period,
+                '_Warranty_Details': warrantyInfo.details,
+                '_Raw_Assets': safeRawAssets.join(' | '),
+                '_Product_Page': data.product_page_url || '',
+                '_Competitor_Links': (data.competitor_urls || []).join(' | '),
+                'Included In Box': (data.included_in_box || []).join(', ')
+            };
 
-        throw err;
+            return [mainRow];
+
+        } catch (e: any) {
+            console.error(`AI Research Attempt ${attempt} failed:`, e);
+            if (attempt === MAX_RETRIES) {
+                // Return original context if AI fails completely
+                return [{
+                    ...existingContext,
+                    'Handle': `${brand}-${sku}`.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, ''),
+                    'Title': existingContext['Title'] || `${brand} ${sku}`,
+                    'Vendor': normalizeVendor(brand),
+                    'Variant SKU': sku,
+                    'Status': 'draft' // Default to draft
+                }];
+            }
+            await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 1000));
+        }
     }
+    return [];
 };
 
 // --- DATA TEMPLATES ---
@@ -965,13 +1499,8 @@ export const downloadCSV = (data: ProductRow[]) => {
           }
       });
       
-      // Normalize and dedupe
-      const normalizedImages = images.map(img => {
-          let clean = img;
-          if (clean.startsWith('http://')) clean = clean.replace('http://', 'https://');
-          return clean;
-      });
-      const uniqueImages = Array.from(new Set(normalizedImages));
+      // Rigorously deduplicate images across all variants and multi-angle records
+      const uniqueImages = deduplicateImages(images);
 
       // Output all rows in the group (e.g. variants)
       group.forEach((row, index) => {
@@ -1279,9 +1808,6 @@ export const parseExcel = async (file: File): Promise<{ headers: string[], data:
                                 const skuVal = normalizeSku(row[primarySkuColName]);
                                 if (!skuVal) return;
                                 
-                                // Find all rows in the current sheet that belong to this SKU
-                                // We match if the sheet SKU starts with the primary SKU (e.g. 48-22-6240 matches 48-22-6240_101)
-                                // OR if the primary SKU starts with the sheet SKU (e.g. 48-22-6240_101 matches 48-22-6240)
                                 const matchingKeys = Array.from(sheetGrouped.keys()).filter(k => 
                                     k === skuVal || 
                                     k.startsWith(skuVal + '_') || 
@@ -1370,13 +1896,27 @@ export const generateShopifyData = (sourceData: ProductRow[], mapping: Mapping):
                 .replace(/^-+|-+$/g, '');
         }
 
+        // Auto-resolve Product Category
+        const resolvedCategory = resolveShopifyToolCategory(
+            String(newRow['Title'] || ''),
+            String(newRow['Vendor'] || ''),
+            String(newRow['Variant SKU'] || ''),
+            String(newRow['Tags'] || ''),
+            String(newRow['Product Category'] || newRow['Google Shopping / Google Product Category'] || '')
+        );
+
+        newRow['Product Category'] = resolvedCategory;
+        if (!newRow['Type']) {
+            newRow['Type'] = resolvedCategory;
+        }
+
         // Set Shopify defaults for mapped data
         newRow['Option1 Name'] = newRow['Option1 Name'] || 'Title';
         newRow['Option1 Value'] = newRow['Option1 Value'] || 'Default Title';
         newRow['Published'] = 'TRUE'; // Default to true per user request
         newRow['Status'] = newRow['Status'] || 'draft'; // Default to draft for safety
         newRow['Variant Inventory Tracker'] = newRow['Variant Inventory Tracker'] || 'shopify';
-        newRow['Variant Inventory Policy'] = newRow['Variant Inventory Policy'] || 'deny';
+        newRow['Variant Inventory Policy'] = 'continue'; // "Sell when out of stock" explicitly enabled
         newRow['Variant Fulfillment Service'] = newRow['Variant Fulfillment Service'] || 'manual';
         newRow['Variant Requires Shipping'] = newRow['Variant Requires Shipping'] || 'true';
         newRow['Variant Taxable'] = newRow['Variant Taxable'] || 'true';
@@ -1384,4 +1924,291 @@ export const generateShopifyData = (sourceData: ProductRow[], mapping: Mapping):
 
         return newRow;
     });
+};
+
+export const VALID_ROOTS = [
+  'Animals & Pet Supplies',
+  'Apparel & Accessories',
+  'Arts & Entertainment',
+  'Baby & Toddler',
+  'Business & Industrial',
+  'Cameras & Optics',
+  'Electronics',
+  'Food, Beverages & Tobacco',
+  'Furniture',
+  'Hardware',
+  'Health & Beauty',
+  'Home & Garden',
+  'Luggage & Bags',
+  'Mature',
+  'Media',
+  'Office Supplies',
+  'Religious & Ceremonial',
+  'Software',
+  'Sporting Goods',
+  'Toys & Games',
+  'Vehicles & Parts'
+];
+
+export const SHOPIFY_TOOL_CATEGORIES = [
+  'Hardware > Tools > Power Tools > Drills & Drivers',
+  'Hardware > Tools > Power Tools > Impact Drivers & Wrenches',
+  'Hardware > Tools > Power Tools > Power Saws > Circular Saws',
+  'Hardware > Tools > Power Tools > Power Saws > Reciprocating Saws (Sawzall)',
+  'Hardware > Tools > Power Tools > Power Saws > Miter & Table Saws',
+  'Hardware > Tools > Power Tools > Power Saws > Band Saws',
+  'Hardware > Tools > Power Tools > Power Saws > Jigsaws',
+  'Hardware > Tools > Power Tools > Grinders & Polishers',
+  'Hardware > Tools > Power Tools > Sanders',
+  'Hardware > Tools > Power Tools > Rotary Hammers & Demolition Hammers',
+  'Hardware > Tools > Power Tools > Power Tool Combo Kits',
+  'Hardware > Tools > Power Tools > Dust Extractors & Wet/Dry Vacuums',
+  'Hardware > Tools > Power Tools > Heat Guns & Blowers',
+  'Hardware > Tools > Power Tools > Routers & Jointers',
+  'Hardware > Tools > Power Tools > Nailers & Staplers',
+  'Hardware > Tools > Power Tools > Power Cutters & Shears',
+  'Hardware > Tools > Power Tools > Concrete & Masonry Tools',
+  'Hardware > Tools > Power Tools > Pipe & Plumbing Tools',
+  'Hardware > Tools > Hand Tools > Pliers & Cutters',
+  'Hardware > Tools > Hand Tools > Wrenches & Ratchets',
+  'Hardware > Tools > Hand Tools > Screwdrivers & Nut Drivers',
+  'Hardware > Tools > Hand Tools > Measuring & Layout Tools > Tape Measures',
+  'Hardware > Tools > Hand Tools > Measuring & Layout Tools > Levels',
+  'Hardware > Tools > Hand Tools > Measuring & Layout Tools > Laser Levels',
+  'Hardware > Tools > Hand Tools > Hammers & Mallets',
+  'Hardware > Tools > Hand Tools > Utility Knives, Blades & Multi-Tools',
+  'Hardware > Tools > Hand Tools > Handsaws & Cutting Tools',
+  'Hardware > Tools > Hand Tools > Clamps & Vises',
+  'Hardware > Tools > Hand Tools > Chisels & Punches',
+  'Hardware > Tools > Hand Tools > Wire Strippers & Crimpers',
+  'Hardware > Tools > Tool Storage & Organization > Modular Storage Systems (PACKOUT)',
+  'Hardware > Tools > Tool Storage & Organization > Tool Boxes & Chests',
+  'Hardware > Tools > Tool Storage & Organization > Tool Bags & Backpacks',
+  'Hardware > Tools > Tool Storage & Organization > Tool Belts & Pouches',
+  'Hardware > Tools > Tool Accessories > Power Tool Batteries & Chargers',
+  'Hardware > Tools > Tool Accessories > Saw Blades',
+  'Hardware > Tools > Tool Accessories > Drill Bits & Driver Bits',
+  'Hardware > Tools > Tool Accessories > Abrasives & Sanding Discs',
+  'Hardware > Tools > Tool Accessories > Socket Sets & Adapters',
+  'Hardware > Tools > Tool Accessories > Hole Saws & Core Bits',
+  'Hardware > Tools > Tool Accessories > Router Bits',
+  'Hardware > Tools > Work Lights & Jobsite Lighting',
+  'Hardware > Tools > Outdoor Power Equipment > String Trimmers & Edgers',
+  'Hardware > Tools > Outdoor Power Equipment > Leaf Blowers',
+  'Hardware > Tools > Outdoor Power Equipment > Chainsaws & Pole Saws',
+  'Hardware > Tools > Outdoor Power Equipment > Lawn Mowers',
+  'Hardware > Tools > Outdoor Power Equipment > Hedge Trimmers',
+  'Hardware > Tools > Safety & Workwear > Heated Gear & Jackets',
+  'Hardware > Tools > Safety & Workwear > Work Gloves',
+  'Hardware > Tools > Safety & Workwear > Eye Protection & Safety Glasses',
+  'Hardware > Tools > Safety & Workwear > Hard Hats & Helmets',
+  'Hardware > Tools > Safety & Workwear > Hearing Protection',
+  'Hardware > Tools > Safety & Workwear > High Visibility Vests & Clothing',
+  'Hardware > Tools > Safety & Workwear > Dust Masks & Respirators',
+  'Hardware > Tools > Plumbing Tools & Equipment > Pipe Threaders & Press Tools',
+  'Hardware > Tools > Plumbing Tools & Equipment > Drain Cleaning & Inspection',
+  'Hardware > Tools > Electrical Tools & Testers > Multimeters & Clamp Meters',
+  'Hardware > Tools > Electrical Tools & Testers > Cable Cutters & Knockout Tools',
+  'Hardware > Tools > Automotive Tools & Equipment',
+  'Hardware > Tools > Inspection & Thermal Imaging Cameras'
+];
+
+/**
+ * Intelligently resolves the most accurate Shopify Product Category for any tool or hardware item.
+ */
+export const resolveShopifyToolCategory = (
+  title: string = '',
+  vendor: string = '',
+  sku: string = '',
+  tags: string = '',
+  currentCategory: string = ''
+): string => {
+  if (currentCategory && currentCategory.includes(' > ') && currentCategory.length > 20) {
+    return currentCategory;
+  }
+
+  const text = `${title} ${vendor} ${sku} ${tags} ${currentCategory}`.toLowerCase();
+
+  // Storage / PACKOUT
+  if (text.includes('packout') || (text.includes('modular') && text.includes('storage'))) {
+    return 'Hardware > Tools > Tool Storage & Organization > Modular Storage Systems (PACKOUT)';
+  }
+  if (text.includes('toolbox') || text.includes('tool box') || text.includes('chest') || text.includes('cabinet') || text.includes('drawers')) {
+    return 'Hardware > Tools > Tool Storage & Organization > Tool Boxes & Chests';
+  }
+  if (text.includes('tool bag') || text.includes('backpack') || text.includes('tote')) {
+    return 'Hardware > Tools > Tool Storage & Organization > Tool Bags & Backpacks';
+  }
+  if (text.includes('tool belt') || text.includes('pouch') || text.includes('holster')) {
+    return 'Hardware > Tools > Tool Storage & Organization > Tool Belts & Pouches';
+  }
+
+  // Batteries & Chargers
+  if (text.includes('battery') || text.includes('charger') || text.includes('redlithium') || text.includes('flexvolt') || text.includes('powerstack')) {
+    return 'Hardware > Tools > Tool Accessories > Power Tool Batteries & Chargers';
+  }
+
+  // Lighting
+  if (text.includes('light') || text.includes('tower light') || text.includes('flood light') || text.includes('headlamp') || text.includes('lantern') || text.includes('spotlight') || text.includes('rover') || text.includes('flashlight')) {
+    return 'Hardware > Tools > Work Lights & Jobsite Lighting';
+  }
+
+  // Outdoor Power Equipment
+  if (text.includes('chainsaw') || text.includes('pole saw')) {
+    return 'Hardware > Tools > Outdoor Power Equipment > Chainsaws & Pole Saws';
+  }
+  if (text.includes('blower') && (text.includes('leaf') || text.includes('yard') || text.includes('outdoor'))) {
+    return 'Hardware > Tools > Outdoor Power Equipment > Leaf Blowers';
+  }
+  if (text.includes('string trimmer') || text.includes('edger') || text.includes('weed eater') || text.includes('line trimmer')) {
+    return 'Hardware > Tools > Outdoor Power Equipment > String Trimmers & Edgers';
+  }
+  if (text.includes('lawn mower') || text.includes('mower')) {
+    return 'Hardware > Tools > Outdoor Power Equipment > Lawn Mowers';
+  }
+  if (text.includes('hedge trimmer')) {
+    return 'Hardware > Tools > Outdoor Power Equipment > Hedge Trimmers';
+  }
+
+  // Heated Gear & Apparel
+  if (text.includes('heated') || text.includes('jacket') || text.includes('hoodie') || text.includes('vest') && text.includes('heated')) {
+    return 'Hardware > Tools > Safety & Workwear > Heated Gear & Jackets';
+  }
+  if (text.includes('glove') || text.includes('cut resistant')) {
+    return 'Hardware > Tools > Safety & Workwear > Work Gloves';
+  }
+  if (text.includes('glasses') || text.includes('goggles') || text.includes('eye protection')) {
+    return 'Hardware > Tools > Safety & Workwear > Eye Protection & Safety Glasses';
+  }
+  if (text.includes('hard hat') || text.includes('helmet')) {
+    return 'Hardware > Tools > Safety & Workwear > Hard Hats & Helmets';
+  }
+  if (text.includes('ear plug') || text.includes('earmuff') || text.includes('hearing')) {
+    return 'Hardware > Tools > Safety & Workwear > Hearing Protection';
+  }
+  if (text.includes('respirator') || text.includes('mask') || text.includes('n95')) {
+    return 'Hardware > Tools > Safety & Workwear > Dust Masks & Respirators';
+  }
+
+  // Power Saws
+  if (text.includes('circular saw') || text.includes('track saw') || text.includes('worm drive')) {
+    return 'Hardware > Tools > Power Tools > Power Saws > Circular Saws';
+  }
+  if (text.includes('sawzall') || text.includes('hackzall') || text.includes('reciprocating saw') || text.includes('recip saw')) {
+    return 'Hardware > Tools > Power Tools > Power Saws > Reciprocating Saws (Sawzall)';
+  }
+  if (text.includes('miter saw') || text.includes('table saw')) {
+    return 'Hardware > Tools > Power Tools > Power Saws > Miter & Table Saws';
+  }
+  if (text.includes('band saw') || text.includes('bandsaw')) {
+    return 'Hardware > Tools > Power Tools > Power Saws > Band Saws';
+  }
+  if (text.includes('jigsaw') || text.includes('jig saw')) {
+    return 'Hardware > Tools > Power Tools > Power Saws > Jigsaws';
+  }
+
+  // Drills & Fastening
+  if (text.includes('impact wrench') || text.includes('impact driver') || text.includes('high torque impact')) {
+    return 'Hardware > Tools > Power Tools > Impact Drivers & Wrenches';
+  }
+  if (text.includes('hammer drill') || text.includes('drill/driver') || text.includes('drill driver') || text.includes('drill') || text.includes('driver')) {
+    return 'Hardware > Tools > Power Tools > Drills & Drivers';
+  }
+  if (text.includes('combo kit') || text.includes('tool kit') || text.includes('2-tool') || text.includes('4-tool') || text.includes('6-tool')) {
+    return 'Hardware > Tools > Power Tools > Power Tool Combo Kits';
+  }
+  if (text.includes('rotary hammer') || text.includes('demolition hammer') || text.includes('sds-plus') || text.includes('sds-max') || text.includes('sds max')) {
+    return 'Hardware > Tools > Power Tools > Rotary Hammers & Demolition Hammers';
+  }
+  if (text.includes('grinder') || text.includes('polisher') || text.includes('angle grinder') || text.includes('die grinder')) {
+    return 'Hardware > Tools > Power Tools > Grinders & Polishers';
+  }
+  if (text.includes('sander') || text.includes('orbital sander') || text.includes('belt sander')) {
+    return 'Hardware > Tools > Power Tools > Sanders';
+  }
+  if (text.includes('vacuum') || text.includes('dust extractor') || text.includes('vac') || text.includes('dust collection')) {
+    return 'Hardware > Tools > Power Tools > Dust Extractors & Wet/Dry Vacuums';
+  }
+  if (text.includes('nailer') || text.includes('stapler') || text.includes('brad nailer') || text.includes('framing nailer') || text.includes('pin nailer')) {
+    return 'Hardware > Tools > Power Tools > Nailers & Staplers';
+  }
+  if (text.includes('router') || text.includes('planer') || text.includes('jointer')) {
+    return 'Hardware > Tools > Power Tools > Routers & Jointers';
+  }
+  if (text.includes('heat gun') || text.includes('compact blower')) {
+    return 'Hardware > Tools > Power Tools > Heat Guns & Blowers';
+  }
+
+  // Hand Tools
+  if (text.includes('plier') || text.includes('cutters') || text.includes('lineman') || text.includes('diagonal cutter') || text.includes('channel lock') || text.includes('crimper')) {
+    return 'Hardware > Tools > Hand Tools > Pliers & Cutters';
+  }
+  if (text.includes('wrench') || text.includes('ratchet') || text.includes('socket set') || text.includes('torque wrench')) {
+    return 'Hardware > Tools > Hand Tools > Wrenches & Ratchets';
+  }
+  if (text.includes('screwdriver') || text.includes('nut driver') || text.includes('hex key') || text.includes('torx')) {
+    return 'Hardware > Tools > Hand Tools > Screwdrivers & Nut Drivers';
+  }
+  if (text.includes('tape measure') || text.includes('tape rule') || text.includes('measuring tape')) {
+    return 'Hardware > Tools > Hand Tools > Measuring & Layout Tools > Tape Measures';
+  }
+  if (text.includes('laser level') || text.includes('cross line laser') || text.includes('rotary laser')) {
+    return 'Hardware > Tools > Hand Tools > Measuring & Layout Tools > Laser Levels';
+  }
+  if (text.includes('level') || text.includes('torpedo level') || text.includes('box level') || text.includes('digital level')) {
+    return 'Hardware > Tools > Hand Tools > Measuring & Layout Tools > Levels';
+  }
+  if (text.includes('hammer') || text.includes('mallet') || text.includes('sledge')) {
+    return 'Hardware > Tools > Hand Tools > Hammers & Mallets';
+  }
+  if (text.includes('knife') || text.includes('utility knife') || text.includes('blade') || text.includes('fastback') || text.includes('multi-tool')) {
+    return 'Hardware > Tools > Hand Tools > Utility Knives, Blades & Multi-Tools';
+  }
+  if (text.includes('clamp') || text.includes('vise') || text.includes('c-clamp')) {
+    return 'Hardware > Tools > Hand Tools > Clamps & Vises';
+  }
+
+  // Plumbing / Electrical Specialized
+  if (text.includes('press tool') || text.includes('pipe threader') || text.includes('pex') || text.includes('drain cleaner') || text.includes('pipe cutter') || text.includes('transfer pump')) {
+    return 'Hardware > Tools > Plumbing Tools & Equipment > Pipe Threaders & Press Tools';
+  }
+  if (text.includes('multimeter') || text.includes('clamp meter') || text.includes('voltage detector') || text.includes('cable cutter') || text.includes('fish tape')) {
+    return 'Hardware > Tools > Electrical Tools & Testers > Multimeters & Clamp Meters';
+  }
+  if (text.includes('thermal camera') || text.includes('inspection camera') || text.includes('borescope')) {
+    return 'Hardware > Tools > Inspection & Thermal Imaging Cameras';
+  }
+
+  // Tool Accessories
+  if (text.includes('blade') || text.includes('carbide blade') || text.includes('diamond blade')) {
+    return 'Hardware > Tools > Tool Accessories > Saw Blades';
+  }
+  if (text.includes('drill bit') || text.includes('driver bit') || text.includes('step bit') || text.includes('auger') || text.includes('sds bit')) {
+    return 'Hardware > Tools > Tool Accessories > Drill Bits & Driver Bits';
+  }
+  if (text.includes('abrasive') || text.includes('sanding disc') || text.includes('grinding wheel') || text.includes('flap disc') || text.includes('cutoff wheel')) {
+    return 'Hardware > Tools > Tool Accessories > Abrasives & Sanding Discs';
+  }
+  if (text.includes('hole saw') || text.includes('core bit')) {
+    return 'Hardware > Tools > Tool Accessories > Hole Saws & Core Bits';
+  }
+
+  // General fallback
+  return 'Hardware > Tools > Power Tools > Drills & Drivers';
+};
+
+export const SUGGESTED_MAPPINGS: Record<string, string[]> = {
+  // Title: Prioritize explicit "Product Name" or "Item Desc" over generic "Name"
+  'Title': ['product name', 'item description', 'description 1', 'product title', 'item name', 'short description', 'material description', 'title', 'name', 'desc'],
+  'Body (HTML)': ['marketing copy', 'long description', 'romance copy', 'extended description', 'web description', 'details', 'features', 'marketing'],
+  // Vendor: Specific 'mfg name' vs just 'mfg'
+  'Vendor': ['brand', 'manufacturer', 'vendor', 'make', 'mfg name', 'brand name'],
+  // SKU: Put 'mfg part number' FIRST to ensure it catches before others
+  'Variant SKU': ['mfg part number', 'mfg part #', 'mfg #', 'part number', 'sku', 'item #', 'model', 'material #', 'prod id', 'part #', 'item id'],
+  'Variant Price': ['price', 'msrp', 'cost', 'retail', 'list price', 'unit price'],
+  'Variant Inventory Qty': ['qty', 'quantity', 'stock', 'inventory', 'on hand', 'available'],
+  'Image Src': ['all images', 'image', 'primary image', 'main image', 'image url', 'pic', 'photo', 'asset', 'url', 'digital asset', 'media', 'file'],
+  'Variant Grams': ['weight', 'shipping weight', 'mass', 'gross weight'],
+  'Variant Barcode': ['upc', 'ean', 'gtin', 'barcode'],
+  'Tags': ['category', 'class', 'sub-class', 'group', 'keywords', 'tags']
 };
