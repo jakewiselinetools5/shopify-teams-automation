@@ -72,6 +72,35 @@ function getCanonicalAssetKey(url) {
   }
 }
 
+
+function getMatchingTaxonomyRules(brand, sku) {
+  const b = String(brand || '').toUpperCase();
+  const s = String(sku || '').toUpperCase();
+  const rules = [];
+
+  if (s.includes('ARKPRO') || (b.includes('OLIGHT') && s.includes('PUR'))) {
+    rules.push('OLIGHT ARKPRO SERIES: ARKPRO-PUR = ArkPro 1500-Lumen Flat EDC Multi-Source Flashlight with UV & Green Laser - Nebula Violet Purple ($139.99 CAD MSRP). Dual magnetic MCC + USB-C fast charging.');
+  } else if (b.includes('OLIGHT') && (s.includes('BATON') || s.includes('SEEKER') || s.includes('WARRIOR') || s.includes('ARKFELD'))) {
+    rules.push('OLIGHT PREMIUM FLASHLIGHTS: Synthesize exact lumens, beam distance, battery, and color matching SKU: ' + s);
+  }
+
+  if (s.includes('461055') || s.includes('461010') || s.includes('461020') || s.includes('461030') || s.includes('462055') || s.includes('463055') || s.includes('464055')) {
+    rules.push('BADGER TOOL BELTS / OCCIDENTAL: 461055 = Carpenter Set - Olive Drab ($562.90 - $599.00 CAD); 461010 = Gunmetal Grey; 461020 = Black; 461030 = Sawdust Sage. 1000D Cordura, Made in USA.');
+  }
+
+  if (s.includes('0931-20') || s.includes('0931')) {
+    rules.push('MILWAUKEE 0931-20: 6.5 Peak HP Wet/Dry Vacuum Motor Head (Corded 120V AC, 12 Amp motor head for modular vacuum tanks 0912-20, 0922-20, 0932-20 - $189.00 - $219.00 CAD MSRP).');
+  } else if (s.includes('0892-20') || s.includes('0892')) {
+    rules.push('MILWAUKEE 0892-20: M18 Brushless Handheld Vacuum (Bare Tool). Cyclonic debris separator, HEPA filter (49-90-1948), 40 CFM, 63" water lift, LED nozzle light, 0.25-gal tank - $179.00 - $199.00 CAD.');
+  }
+
+  if (s.includes('TW001G') || s.includes('TW002G') || s.includes('TW004G') || s.includes('DTW')) {
+    rules.push('MAKITA IMPACT WRENCHES: TW002G = 40V Max XGT 1/2" High Torque Brushless Impact Wrench (1,250 ft-lbs fastening / 1,620 ft-lbs nut-busting). Suffix Z = Tool Only.');
+  }
+
+  return rules.join('\n');
+}
+
 const TOOL_TAXONOMY_RULES = `
 INDUSTRIAL TOOL SKU DECODING & FACT VERIFICATION RULES:
 - OLIGHT / OLIGHT TECHNOLOGY:
@@ -361,19 +390,16 @@ export default async function handler(req, res) {
         candidateProductUrls.push(`https://stealthvacs.com/products/${cleanMfrSku.toLowerCase()}`);
         candidateProductUrls.push(`https://www.stealthvacs.com/products/${sku.toLowerCase()}`);
       } else if (lowerBrand.includes('badger') || lowerBrand.includes('occidental')) {
-        const baseBadgerSku = cleanMfrSku.slice(0, 6);
-        candidateProductUrls.push(`https://www.burnstools.com/${cleanMfrSku.toLowerCase()}-carpenter-set-olive-w-black`);
-        candidateProductUrls.push(`https://www.burnstools.com/${cleanMfrSku.toLowerCase()}-carpenter-set-gunmetal-grey`);
-        candidateProductUrls.push(`https://squareshardware.ca/products/badger-tool-belts-${baseBadgerSku}-carpenter-set-olive`);
-        candidateProductUrls.push(`https://squareshardware.ca/products/badger-tool-belts-${baseBadgerSku}-carpenter-set-gunmetal-grey`);
-        candidateProductUrls.push(`https://www.atlas-machinery.com/badger/BADGER-${baseBadgerSku}-XX/`);
-        candidateProductUrls.push(`https://www.atlas-machinery.com/occidental/BADGER-${baseBadgerSku}-XX/`);
+        candidateProductUrls.push(`https://badgertoolbelts.com/search?q=${encodeURIComponent(cleanMfrSku)}`);
         candidateProductUrls.push(`https://badgertoolbelts.com/products/${cleanMfrSku.toLowerCase()}`);
+        candidateProductUrls.push(`https://squareshardware.ca/search?q=${encodeURIComponent(cleanMfrSku)}`);
+        candidateProductUrls.push(`https://www.burnstools.com/catalogsearch/result/?q=${encodeURIComponent(cleanMfrSku)}`);
+        candidateProductUrls.push(`https://www.atlas-machinery.com/search.php?search_query=${encodeURIComponent(cleanMfrSku)}`);
       } else if (lowerBrand.includes('olight')) {
-        candidateProductUrls.push(`https://ca.olight.com/store/arkpro-edc-flashlight-1500-lumens-uv-green-laser-flat-unibody-light`);
-        candidateProductUrls.push(`https://www.olight.com/store/arkpro-edc-flashlight-1500-lumens-uv-green-laser-flat-unibody-light`);
-        candidateProductUrls.push(`https://ca.olight.com/blog/olight-arkpro-nebula-violet-1500lm-4-in-1-edc-flashlight`);
-        candidateProductUrls.push(`https://tgreviews.com/2026/07/25/olight-arkpurple/`);
+        candidateProductUrls.push(`https://www.olightstore.ca/search?q=${encodeURIComponent(cleanMfrSku)}`);
+        candidateProductUrls.push(`https://www.olightstore.com/search?q=${encodeURIComponent(cleanMfrSku)}`);
+        candidateProductUrls.push(`https://ca.olight.com/products/${cleanMfrSku.toLowerCase()}`);
+        candidateProductUrls.push(`https://www.olight.com/products/${cleanMfrSku.toLowerCase()}`);
       } else if (lowerBrand.includes('malco')) {
         candidateProductUrls.push(`https://www.malcopro.com/product/${cleanMfrSku.toLowerCase()}`);
       } else if (lowerBrand.includes('knipex')) {
@@ -606,7 +632,7 @@ export default async function handler(req, res) {
       const prompt = `Act as the Master Industrial Tool Data Architect for Professional Trades & Shopify Catalog Specialist.
 You must synthesize complete, authoritative, 100% accurate Shopify product catalog data for: "${brand} ${sku}".
 
-${TOOL_TAXONOMY_RULES}
+${getMatchingTaxonomyRules(brand, sku)}
 
 ${officialMfrTitle ? `VERIFIED OFFICIAL LIVE MANUFACTURER PRODUCT PAGE:\nOfficial Product Name: "${officialMfrTitle}" (Source: ${officialMfrSource})\nCRITICAL MANDATE: The manufacturer's official website confirms this item is strictly "${officialMfrTitle}". Base the item identity, title, specifications, and features 100% on this exact product. Never confuse it with a different capacity tank or complete kit.` : ''}
 
@@ -663,7 +689,7 @@ OUTPUT STRICTLY A VALID JSON OBJECT:
 }`;
 
       const ai = new GoogleGenAI({ apiKey });
-      const modelsToTry = ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.5-flash-lite'];
+      const modelsToTry = ['gemini-3.7-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemini-3.5-flash', 'gemini-3.5-flash-lite'];
       let parsedData = null;
 
       for (const m of modelsToTry) {

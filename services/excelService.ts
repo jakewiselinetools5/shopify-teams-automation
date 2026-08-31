@@ -901,364 +901,121 @@ export const generatePromoImage = async (product: ProductRow, apiKey: string): P
     throw new Error("Failed to generate promotional image.");
 };
 
-export const createProductFromSku = async (brand: string, sku: string, apiKey: string, existingContext: ProductRow = {}): Promise<ProductRow[]> => {
-    const MAX_RETRIES = 3;
-    let attempt = 0;
-    
-    // Prepare context string for AI
-    const hasContext = Object.keys(existingContext).length > 0;
-    const contextStr = hasContext 
-        ? `EXISTING DATA (Prioritize this if valid, but fill gaps): ${JSON.stringify({
-            title: existingContext['Title'],
-            description_text: existingContext['Body (HTML)']?.replace(/<[^>]*>?/gm, ''), // Pass raw text to check for keywords
-            price: existingContext['Variant Price'],
-            weight: existingContext['Variant Grams'],
-            barcode: existingContext['Variant Barcode'],
-            image: existingContext['Image Src']
-        })}` 
-        : 'NO EXISTING DATA.';
+export const createProductFromSku = async (
+  brand: string, 
+  sku: string, 
+  apiKeyOrHint?: string, 
+  existingContext: ProductRow = {}
+): Promise<ProductRow[]> => {
+  const cleanBrand = (brand || '').trim();
+  const cleanSku = (sku || '').trim();
+  const titleHint = (existingContext['Title'] || (apiKeyOrHint && !apiKeyOrHint.startsWith('AIza') ? apiKeyOrHint : '')).trim();
 
-    while (attempt < MAX_RETRIES) {
-        attempt++;
-        try {
-            const ai = new GoogleGenAI({ apiKey: getEffectiveApiKey(apiKey) });
-            
-            const prompt = `Act as an elite world-class industrial product data architect and lead SEO strategist for authorized tool distributor "Wise Line Tools". 
-            Your mission: Synthesize the absolute highest quality product data and visual catalog assets for: "${brand} ${sku}".
-            
-            ${contextStr}
+  try {
+    console.log(`[AI Studio Engine] Requesting deep synthesis for ${cleanBrand} ${cleanSku}...`);
+    const res = await fetch('/api/ai/synthesize', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        brand: cleanBrand,
+        sku: cleanSku,
+        systemTitleHint: titleHint,
+        existingContext
+      })
+    });
 
-            1. SEARCH & RECOVERY STRATEGY (CRITICAL):
-            - Perform Google Searches for "${brand} ${sku}", "${brand} ${sku} specifications", "${brand} ${sku} price canada", and "${brand} ${sku} product images gallery".
-            - Target official manufacturer portals (milwaukeetool.com/ca, dewalt.com/ca, makitatools.com/ca, boschtools.com, kleintools.com, olight.com, olightstore.ca).
-            - Target authorized dealers (Home Depot Canada, Acme Tools, Grainger Canada, Tool Nut).
+    if (res.ok) {
+      const json = await res.json();
+      if (json.success && json.data) {
+        const data = json.data;
+        const images: string[] = Array.isArray(json.images) ? json.images : (Array.isArray(data.images) ? data.images : []);
 
-            2. MULTI-IMAGE ASSET EXTRACTION (HIGHEST PRIORITY):
-            - Extract 4 to 8 REAL, HIGH-RESOLUTION product images (.jpg, .png, .webp).
-            - Cover multiple distinct angles and views:
-              * Angle 1: Primary Hero Shot (Tool isolated on white background)
-              * Angle 2: 3D Perspective / Side Angle
-              * Angle 3: Kit / Case / What's Included (Batteries, charger, case, accessories)
-              * Angle 4: Close-up mechanism / chuck / motor / controls
-              * Angle 5: Application / Jobsite in action
-            - NEVER invent fake domains. Return direct CDN image URLs from manufacturer media CDNs (Scene7, Milwaukee Media, SBD Media, Shopify CDN, Home Depot CDN, Olight CDN).
-            - Exclude logos, banners, icons, and low-res thumbnails.
-
-            3. CANADIAN MARKET INTELLIGENCE:
-            - If price is missing in EXISTING DATA, research exact current pricing (MSRP) from Canadian competitors.
-            - Resulting price MUST be in CAD (numbers only).
-
-            4. DEEP INDUSTRIAL METADATA:
-            - Official GTIN/UPC Barcode (12-13 digits). If no verified barcode exists, leave empty "".
-            - Product Weight in Grams.
-            - Country of Origin (2-letter ISO).
-            - HS Tariff Code.
-            - Google Product Category.
-            - Product Type.
-
-            5. CONTENT ARCHITECTURE (HTML):
-            - Professional HTML Description.
-            - Start with a strong introductory paragraph (NO "Product Overview" heading).
-            - Include: Performance Features (<ul>), Technical Specifications (<table>), What's Included.
-            - Include: Accurate Manufacturer Warranty Block (<div class="product-warranty-block">) at the bottom.
-
-            6. SEO & TAXONOMY:
-            - Title: "[Brand] [SKU] [Product Name]".
-            - Tags: Comma separated.
-
-            7. MANUFACTURER WARRANTY RESEARCH (CRITICAL):
-            - Research and verify the precise official manufacturer warranty terms for this brand and product type in Canada.
-            - Return specific period and coverage details.
-
-            OUTPUT JSON ONLY:
-            {
-              "title": "...",
-              "price_cad": "...",
-              "body_html": "...",
-              "warranty_period": "...",
-              "warranty_details": "...",
-              "barcode": "...",
-              "weight_grams": "...",
-              "tags": "...",
-              "product_type": "...",
-              "country_of_origin": "...",
-              "hs_code": "...",
-              "google_category": "...",
-              "seo_title": "...",
-              "seo_description": "...",
-              "included_in_box": ["..."],
-              "product_page_url": "The actual URL of the manufacturer or main retailer product page found.",
-              "competitor_urls": ["URL1", "URL2"],
-              "images": [
-                "https://.../main_hero.jpg",
-                "https://.../angle_view.jpg",
-                "https://.../kit_case.jpg",
-                "https://.../close_up.jpg",
-                "https://.../in_action.jpg"
-              ]
-            }`;
-
-            let response: any;
-            try {
-                response = await ai.models.generateContent({
-                    model: 'gemini-3.7-flash', 
-                    contents: prompt,
-                    config: { 
-                        tools: [{ googleSearch: {} }]
-                    }
-                });
-            } catch (searchErr) {
-                console.warn("Search-grounded generation attempt failed, falling back to direct prompt:", searchErr);
-                response = await ai.models.generateContent({
-                    model: 'gemini-3.7-flash',
-                    contents: prompt
-                });
-            }
-
-            let text = response?.text || '';
-            if (!text && response?.candidates?.[0]?.content?.parts) {
-                text = response.candidates[0].content.parts.map((p: any) => p.text || '').join('');
-            }
-            if (!text) {
-                // Try fallback without tools if text is still empty
-                try {
-                    const fallbackResponse = await ai.models.generateContent({
-                        model: 'gemini-3.7-flash',
-                        contents: prompt
-                    });
-                    text = fallbackResponse?.text || fallbackResponse?.candidates?.[0]?.content?.parts?.map((p: any) => p.text || '').join('') || '';
-                } catch (fbErr) {
-                    console.error("Direct prompt fallback failed:", fbErr);
-                }
-            }
-            if (!text) throw new Error("Received empty response from Gemini API");
-
-            let jsonStr = text;
-            const match = text.match(/\`\`\`json\s*(\{[\s\S]*?\})\s*\`\`\`/);
-            if (match) {
-                jsonStr = match[1];
-            } else {
-                const firstBrace = text.indexOf('{');
-                const lastBrace = text.lastIndexOf('}');
-                if (firstBrace !== -1 && lastBrace !== -1) {
-                    jsonStr = text.substring(firstBrace, lastBrace + 1);
-                }
-            }
-                
-            let data: any = {};
-            try {
-                data = JSON.parse(jsonStr);
-            } catch (parseError) {
-                 const match = text.match(/\{[\s\S]*\}/);
-                 if (match) {
-                     try { data = JSON.parse(match[0]); } catch(e) {}
-                 }
-            }
-            
-            // Extract discovered web URIs from Google Search Grounding
-            const discoveredPages: string[] = [];
-            const groundingChunks = (response.candidates?.[0] as any)?.groundingMetadata?.groundingChunks || [];
-            groundingChunks.forEach((chunk: any) => {
-                const uri = chunk?.web?.uri;
-                if (uri && uri.startsWith('http')) {
-                    discoveredPages.push(uri);
-                }
-            });
-
-            if (data.product_page_url) discoveredPages.push(data.product_page_url);
-            if (Array.isArray(data.competitor_urls)) discoveredPages.push(...data.competitor_urls);
-
-            // Extract and clean raw image URLs
-            let rawImages: string[] = (Array.isArray(data.images) ? data.images.map((img: any) => String(img || '')) : []);
-            if (existingContext['Image Src'] && !existingContext['Image Src'].includes('placehold.co')) {
-                const existingImages = String(existingContext['Image Src']).split(/[|,\n;]/).map(s => s.trim()).filter(s => s);
-                rawImages = [...existingImages, ...rawImages];
-            }
-            
-            let uniqueImages = deduplicateImages(rawImages);
-
-            // Run deep visual asset scraper and live HTML parser on discovered retailer/manufacturer pages
-            try {
-                const scraped = await scrapeProductImages(brand, sku, apiKey, uniqueImages, discoveredPages);
-                if (scraped && scraped.length > 0) {
-                    uniqueImages = deduplicateImages([...uniqueImages, ...scraped]);
-                }
-            } catch (scrapeErr) {
-                console.warn("Secondary image scrape fallback notice:", scrapeErr);
-            }
-
-            // Verify candidates in browser to weed out 404s
-            if (uniqueImages.length > 0) {
-                const validationCheck = await Promise.all(
-                    uniqueImages.slice(0, 8).map(async (u: string) => {
-                        const ok = await validateImageUrl(u, 2500);
-                        return { url: u, ok };
-                    })
-                );
-                const workingOnes = rankImagesForHero(
-                    validationCheck.filter(v => v.ok).map(v => v.url),
-                    brand,
-                    sku
-                );
-                if (workingOnes.length > 0) {
-                    uniqueImages = workingOnes;
-                }
-            }
-
-            // If still no valid images found, generate a studio photo so the product is never blank
-            if (uniqueImages.length === 0) {
-                try {
-                    const studioPhoto = await generateStudioProductPhoto(brand, data.title || sku, sku, 'hero', apiKey);
-                    if (studioPhoto) {
-                        uniqueImages = [studioPhoto];
-                    }
-                } catch (genErr) {
-                    console.warn("Product studio photo initialization notice:", genErr);
-                }
-            } else {
-                uniqueImages = rankImagesForHero(uniqueImages, brand, sku);
-            }
-
-            let handle = existingContext['Handle'];
-            if (!handle) {
-                let baseName = (data.title || existingContext['Title'] || `${brand}-${sku}`).toLowerCase()
-                    .replace(/[^a-z0-9]+/g, '-')
-                    .replace(/^-+|-+$/g, '');
-                    
-                const skuSlug = sku.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-                if (!baseName.includes(skuSlug)) {
-                    handle = `${baseName}-${skuSlug}`;
-                } else {
-                    handle = baseName;
-                }
-            }
-            
-            const safeRawAssets = rawImages.filter((u: any) => typeof u === 'string' && u && !u.startsWith('data:image') && u.length < 3000);
-            
-            // Use existing price if valid and AI didn't find one or if existing is preferred
-            const aiPrice = data.price_cad ? String(data.price_cad).replace(/[^0-9.]/g, '') : '';
-            const existingPrice = existingContext['Variant Price'] ? String(existingContext['Variant Price']).replace(/[^0-9.]/g, '') : '';
-            const finalPrice = existingPrice && parseFloat(existingPrice) > 0 ? existingPrice : aiPrice;
-
-            const aiGrams = data.weight_grams ? String(data.weight_grams).replace(/[^0-9]/g, '') : '';
-            const existingGrams = existingContext['Variant Grams'] ? String(existingContext['Variant Grams']).replace(/[^0-9]/g, '') : '';
-            const finalGrams = existingGrams && parseInt(existingGrams) > 0 ? existingGrams : aiGrams;
-
-            const finalBarcode = (existingContext['Variant Barcode'] && String(existingContext['Variant Barcode']).length > 6) 
-                ? existingContext['Variant Barcode'] 
-                : (data.barcode ? `'${data.barcode}` : '');
-
-            // Clean Body HTML to ensure "Product Overview" header is removed if AI generates it
-            let cleanBody = data.body_html || existingContext['Body (HTML)'] || '';
-            cleanBody = cleanBody
-                .replace(/<h3>Product Overview<\/h3>/gi, '')
-                .replace(/<h3>Overview<\/h3>/gi, '')
-                .replace(/<h2>Product Overview<\/h2>/gi, '')
-                .replace(/<h2>Overview<\/h2>/gi, '')
-                .replace(/<strong>Product Overview<\/strong>/gi, '')
-                .replace(/<b>Product Overview<\/b>/gi, '');
-
-            // Researched accurate warranty block synthesis
-            const warrantyInfo = generateWarrantyBlock(
-                brand, 
-                sku, 
-                data.warranty_period, 
-                data.warranty_details, 
-                data.title || existingContext['Title'], 
-                data.product_type || existingContext['Type']
-            );
-
-            // Ensure the Warranty block is placed at the bottom of the description cleanly
-            if (cleanBody && !cleanBody.includes('product-warranty-block') && !cleanBody.includes('Manufacturer Warranty & Guarantee') && !cleanBody.includes('Manufacturer Warranty & Support')) {
-                cleanBody = `${cleanBody.trim()}\n\n${warrantyInfo.html}`;
-            } else if (!cleanBody) {
-                cleanBody = warrantyInfo.html;
-            }
-
-            // Construct standard Shopify row with resolved product category and CONTINUE inventory policy
-            const titleVal = data.title || existingContext['Title'] || `${brand} ${sku}`;
-            const tagsVal = data.tags || existingContext['Tags'] || '';
-            const resolvedCategory = resolveShopifyToolCategory(
-                titleVal,
-                brand,
-                sku,
-                tagsVal,
-                data.google_category || existingContext['Product Category'] || ''
-            );
-
-            const mainRow: ProductRow = {
-                ...existingContext,
-                'Handle': handle,
-                'Title': titleVal,
-                'Body (HTML)': cleanBody,
-                'Vendor': normalizeVendor(brand),
-                'Product Category': resolvedCategory,
-                'Type': data.product_type || existingContext['Type'] || resolvedCategory,
-                'Tags': tagsVal,
-                'Published': 'TRUE',
-                'Option1 Name': existingContext['Option1 Name'] || 'Title',
-                'Option1 Value': existingContext['Option1 Value'] || 'Default Title',
-                'Option2 Name': existingContext['Option2 Name'] || '',
-                'Option2 Value': existingContext['Option2 Value'] || '',
-                'Option3 Name': existingContext['Option3 Name'] || '',
-                'Option3 Value': existingContext['Option3 Value'] || '',
-                'Variant SKU': sku,
-                'Variant Grams': finalGrams,
-                'Variant Inventory Tracker': existingContext['Variant Inventory Tracker'] || 'shopify',
-                'Variant Inventory Qty': existingContext['Variant Inventory Qty'] || '',
-                'Variant Inventory Policy': 'continue', 
-                'Variant Fulfillment Service': existingContext['Variant Fulfillment Service'] || 'manual',
-                'Variant Price': finalPrice,
-                'Variant Compare At Price': existingContext['Variant Compare At Price'] || '',
-                'Variant Requires Shipping': existingContext['Variant Requires Shipping'] || 'true',
-                'Variant Taxable': existingContext['Variant Taxable'] || 'true',
-                'Unit Price Total Measure': existingContext['Unit Price Total Measure'] || '',
-                'Unit Price Total Measure Unit': existingContext['Unit Price Total Measure Unit'] || '',
-                'Unit Price Base Measure': existingContext['Unit Price Base Measure'] || '',
-                'Unit Price Base Measure Unit': existingContext['Unit Price Base Measure Unit'] || '',
-                'Variant Barcode': finalBarcode,
-                'Variant HS Code': data.hs_code || existingContext['Variant HS Code'] || '',
-                'Variant Country of Origin': data.country_of_origin || existingContext['Variant Country of Origin'] || '',
-                'Variant Image': existingContext['Variant Image'] || '',
-                'Image Src': uniqueImages.join(' | '), // Store all images here so downloadCSV can split them
-                'Image Position': 1,
-                'Image Alt Text': '',
-                'Gift Card': existingContext['Gift Card'] || 'false',
-                'SEO Title': data.seo_title || existingContext['SEO Title'] || '',
-                'SEO Description': data.seo_description || existingContext['SEO Description'] || '',
-                'Google Shopping / Google Product Category': data.google_category || '',
-                'Google Shopping / Condition': 'new',
-                'Variant Weight Unit': existingContext['Variant Weight Unit'] || 'g',
-                'Variant Tax Code': existingContext['Variant Tax Code'] || '',
-                'Cost per item': existingContext['Cost per item'] || '',
-                'Status': existingContext['Status'] || 'draft',
-                'Warranty': warrantyInfo.period,
-                '_Warranty_Details': warrantyInfo.details,
-                '_Raw_Assets': safeRawAssets.join(' | '),
-                '_Product_Page': data.product_page_url || '',
-                '_Competitor_Links': (data.competitor_urls || []).join(' | '),
-                'Included In Box': (data.included_in_box || []).join(', ')
-            };
-
-            return [mainRow];
-
-        } catch (e: any) {
-            console.error(`AI Research Attempt ${attempt} failed:`, e);
-            if (attempt === MAX_RETRIES) {
-                // Return original context if AI fails completely
-                return [{
-                    ...existingContext,
-                    'Handle': `${brand}-${sku}`.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, ''),
-                    'Title': existingContext['Title'] || `${brand} ${sku}`,
-                    'Vendor': normalizeVendor(brand),
-                    'Variant SKU': sku,
-                    'Status': 'draft' // Default to draft
-                }];
-            }
-            await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 1000));
+        // Deduplicate & rank images
+        let uniqueImages = rankImagesForHero(images, cleanBrand, cleanSku);
+        if (uniqueImages.length === 0 && existingContext['Image Src']) {
+          uniqueImages = deduplicateImages(String(existingContext['Image Src']).split(/[|,\n;]/).map(s => s.trim()).filter(Boolean));
         }
+
+        const resolvedTitle = data.title || existingContext['Title'] || `${cleanBrand} ${cleanSku}`;
+        const resolvedCategory = resolveShopifyToolCategory(
+          resolvedTitle,
+          cleanBrand,
+          cleanSku,
+          data.tags || existingContext['Tags'] || '',
+          data.google_category || existingContext['Product Category'] || ''
+        );
+
+        let handle = existingContext['Handle'];
+        if (!handle) {
+          handle = resolvedTitle.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+        }
+
+        const warrantyInfo = generateWarrantyBlock(
+          cleanBrand,
+          cleanSku,
+          data.warranty || data.warranty_period,
+          data.warranty_details,
+          resolvedTitle,
+          data.product_type || existingContext['Type']
+        );
+
+        let cleanBody = data.body_html || existingContext['Body (HTML)'] || '';
+        if (cleanBody && !cleanBody.includes('product-warranty-block') && !cleanBody.includes('Manufacturer Warranty')) {
+          cleanBody = `${cleanBody.trim()}\n\n${warrantyInfo.html}`;
+        }
+
+        const finalPrice = data.price_cad ? String(data.price_cad).replace(/[^0-9.]/g, '') : (existingContext['Variant Price'] || '');
+        const finalBarcode = data.barcode ? String(data.barcode).replace(/[^0-9]/g, '') : (existingContext['Variant Barcode'] || '');
+
+        const row: ProductRow = {
+          ...existingContext,
+          'Handle': handle,
+          'Title': resolvedTitle,
+          'Body (HTML)': cleanBody,
+          'Vendor': normalizeVendor(cleanBrand),
+          'Product Category': resolvedCategory,
+          'Type': data.product_type || existingContext['Type'] || resolvedCategory,
+          'Tags': data.tags || existingContext['Tags'] || '',
+          'Published': 'TRUE',
+          'Option1 Name': 'Title',
+          'Option1 Value': 'Default Title',
+          'Variant SKU': cleanSku,
+          'Variant Grams': data.weight_grams ? String(data.weight_grams).replace(/[^0-9]/g, '') : (existingContext['Variant Grams'] || ''),
+          'Variant Inventory Tracker': 'shopify',
+          'Variant Inventory Policy': 'continue',
+          'Variant Fulfillment Service': 'manual',
+          'Variant Price': finalPrice,
+          'Variant Barcode': finalBarcode ? `'${finalBarcode}` : '',
+          'Variant Country of Origin': data.country_of_origin || existingContext['Variant Country of Origin'] || '',
+          'Variant HS Code': data.hs_code || existingContext['Variant HS Code'] || '',
+          'Image Src': uniqueImages.join(' | '),
+          'Image Position': 1,
+          'Status': 'draft',
+          'SEO Title': data.seo_title || `${resolvedTitle} | Wise Line Tools Canada`,
+          'SEO Description': data.seo_description || '',
+          'Google Shopping / Google Product Category': data.google_category || '',
+          'Google Shopping / Condition': 'new',
+          'Warranty': warrantyInfo.period,
+          '_Warranty_Details': warrantyInfo.details,
+          'Included In Box': Array.isArray(data.included_in_box) ? data.included_in_box.join(', ') : (data.included_in_box || '')
+        };
+
+        return [row];
+      }
     }
-    return [];
+  } catch (serverErr) {
+    console.warn("[AI Studio Engine] Server synthesis request error, proceeding with direct search:", serverErr);
+  }
+
+  // Fallback direct generation
+  return [{
+    ...existingContext,
+    'Handle': `${cleanBrand}-${cleanSku}`.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, ''),
+    'Title': titleHint || `${cleanBrand} ${cleanSku}`,
+    'Vendor': normalizeVendor(cleanBrand),
+    'Variant SKU': cleanSku,
+    'Status': 'draft'
+  }];
 };
 
 // --- DATA TEMPLATES ---
