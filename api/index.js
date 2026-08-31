@@ -1,5 +1,32 @@
 import { GoogleGenAI } from '@google/genai';
 
+
+function isImageMatchingSkuModel(imgUrl, brand, sku) {
+  const lower = String(imgUrl || '').toLowerCase();
+  const lowerSku = String(sku || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  
+  // Banner and site asset filters
+  if (lower.includes('1920x960') || lower.includes('930x600') || lower.includes('70x30') || 
+      lower.includes('country/') || lower.includes('/flags/') || lower.includes('ca.png') || 
+      lower.includes('banner') || lower.includes('header') || lower.includes('slider')) {
+    return false;
+  }
+
+  // Cross-model mismatch filters for Olight
+  if (brand.toLowerCase().includes('olight')) {
+    const olightModels = ['arkpro', 'arkfeld', 'baton', 'seeker', 'warrior', 'perun', 'marauder', 'oclip', 'javelot', 'baldr', 'valkyrie', 'i3t', 'i5t', 'i1r', 'diffuse', 'sphere'];
+    const currentModel = olightModels.find(m => lowerSku.includes(m));
+    if (currentModel) {
+      const otherModels = olightModels.filter(m => m !== currentModel);
+      if (otherModels.some(other => lower.includes(other))) {
+        return false; // Skip images from other models
+      }
+    }
+  }
+
+  return true;
+}
+
 const NON_PRODUCT_BLOCKLIST = [
   'googleusercontent.com', 'blogger_img_proxy', 'blogspot.com',
   'pinimg.com', 'pinterest.com', 'vecteezy', 'freepik',
@@ -73,169 +100,9 @@ function getCanonicalAssetKey(url) {
 }
 
 
-function getMatchingTaxonomyRules(brand, sku) {
-  const b = String(brand || '').toUpperCase();
-  const s = String(sku || '').toUpperCase();
-  const rules = [];
+function getMatchingTaxonomyRules(brand, sku) { return ""; }
 
-  if (s.includes('ARKPRO') || (b.includes('OLIGHT') && s.includes('PUR'))) {
-    rules.push('OLIGHT ARKPRO SERIES: ARKPRO-PUR = ArkPro 1500-Lumen Flat EDC Multi-Source Flashlight with UV & Green Laser - Nebula Violet Purple ($139.99 CAD MSRP). Dual magnetic MCC + USB-C fast charging.');
-  } else if (b.includes('OLIGHT') && (s.includes('BATON') || s.includes('SEEKER') || s.includes('WARRIOR') || s.includes('ARKFELD'))) {
-    rules.push('OLIGHT PREMIUM FLASHLIGHTS: Synthesize exact lumens, beam distance, battery, and color matching SKU: ' + s);
-  }
-
-  if (s.includes('461055') || s.includes('461010') || s.includes('461020') || s.includes('461030') || s.includes('462055') || s.includes('463055') || s.includes('464055')) {
-    rules.push('BADGER TOOL BELTS / OCCIDENTAL: 461055 = Carpenter Set - Olive Drab ($562.90 - $599.00 CAD); 461010 = Gunmetal Grey; 461020 = Black; 461030 = Sawdust Sage. 1000D Cordura, Made in USA.');
-  }
-
-  if (s.includes('0931-20') || s.includes('0931')) {
-    rules.push('MILWAUKEE 0931-20: 6.5 Peak HP Wet/Dry Vacuum Motor Head (Corded 120V AC, 12 Amp motor head for modular vacuum tanks 0912-20, 0922-20, 0932-20 - $189.00 - $219.00 CAD MSRP).');
-  } else if (s.includes('0892-20') || s.includes('0892')) {
-    rules.push('MILWAUKEE 0892-20: M18 Brushless Handheld Vacuum (Bare Tool). Cyclonic debris separator, HEPA filter (49-90-1948), 40 CFM, 63" water lift, LED nozzle light, 0.25-gal tank - $179.00 - $199.00 CAD.');
-  }
-
-  if (s.includes('TW001G') || s.includes('TW002G') || s.includes('TW004G') || s.includes('DTW')) {
-    rules.push('MAKITA IMPACT WRENCHES: TW002G = 40V Max XGT 1/2" High Torque Brushless Impact Wrench (1,250 ft-lbs fastening / 1,620 ft-lbs nut-busting). Suffix Z = Tool Only.');
-  }
-
-  return rules.join('\n');
-}
-
-const TOOL_TAXONOMY_RULES = `
-INDUSTRIAL TOOL SKU DECODING & FACT VERIFICATION RULES:
-- OLIGHT / OLIGHT TECHNOLOGY:
-  * ARKPRO-PUR = ArkPro 1500-Lumen Flat EDC Multi-Source Flashlight with UV & Green Laser - Nebula Violet Purple ($139.99 CAD MSRP).
-    - Features: 1,500-lumen pure floodlight, 800-lumen spotlight (205m beam distance), 365nm UV light, Class 3R green laser beam, dual magnetic MCC + USB-C fast charging, aerospace aluminum unibody in Nebula Violet purple.
-  * ARKPRO-ODG / ARKPRO-GRN = ArkPro 1500-Lumen Flat EDC Flashlight - Olive Green ($139.99 CAD).
-  * ARKPRO-TAN = ArkPro 1500-Lumen Flat EDC Flashlight - Desert Tan ($139.99 CAD).
-  * ARKPRO-BLK = ArkPro 1500-Lumen Flat EDC Flashlight - Matte Black ($139.99 CAD).
-  * ARKFELD-PRO = Arkfeld Pro Flat EDC Flashlight with 1300 Lumens, 365nm UV & Green Laser ($119.99 - $129.99 CAD).
-  * BATON-3 / BATON-4 = Baton Premium EDC Flashlight ($89.99 - $119.99 CAD).
-  * SEEKER-4-PRO = Seeker 4 Pro 4600-Lumen High-Output Flashlight ($179.99 CAD).
-  * WARRIOR-3S = Warrior 3S Tactical Flashlight ($149.99 CAD).
-  * Suffix '-PUR' / 'PUR' = Nebula Violet / Purple
-  * Suffix '-ODG' / '-GRN' = Olive Green / OD Green
-  * Suffix '-TAN' = Desert Tan / Coyote
-  * Suffix '-BLK' = Matte Black
-  * Suffix '-BLU' = Midnight Blue
-  * Suffix '-ORG' = Safety Orange
-  * Olight Warranty: "Olight Lifetime Limited Manufacturer Warranty (North America)."
-
-- BADGER TOOL BELTS / OCCIDENTAL LEATHER:
-  * 461055 / OCC-461055 = Carpenter Tool Belt Set - Olive Drab with Black (Includes Carpenter Tool Bag, Side-by-Side Fastener Bag, 4" Contoured Padded Belt with Metal COBRA Buckle - 1000D USA Cordura Nylon, Made in USA - $562.90 - $599.00 CAD MSRP).
-    - 461055SM = Small (28"-31" waist)
-    - 461055MD = Medium (32"-35" waist)
-    - 461055LG / 461055-LG = Large (36"-39" waist)
-    - 461055XL / 461055-XL = X-Large (40"-43" waist)
-    - 4610552X = 2X-Large (44"-47" waist)
-  * 461010 / OCC-461010 = Carpenter Tool Belt Set - Gunmetal Grey ($562.90 - $599.00 CAD MSRP).
-  * 461020 / OCC-461020 = Carpenter Tool Belt Set - Midnight Black ($562.90 - $599.00 CAD MSRP).
-  * 461030 / OCC-461030 = Carpenter Tool Belt Set - Sawdust Sage / Coyote Tan ($562.90 - $599.00 CAD MSRP).
-  * 462055 / OCC-462055 = Framer Tool Belt Set - Olive Drab with Black ($569.00 - $619.00 CAD).
-  * 462010 / OCC-462010 = Framer Tool Belt Set - Gunmetal Grey ($569.00 - $619.00 CAD).
-  * 462020 / OCC-462020 = Framer Tool Belt Set - Midnight Black ($569.00 - $619.00 CAD).
-  * 462030 / OCC-462030 = Framer Tool Belt Set - Sawdust Sage ($569.00 - $619.00 CAD).
-  * 463055 / OCC-463055 = Trimmer Tool Belt Set - Olive Drab ($529.00 - $569.00 CAD).
-  * 463010 / OCC-463010 = Trimmer Tool Belt Set - Gunmetal Grey ($529.00 - $569.00 CAD).
-  * 464055 / OCC-464055 = Electrician Tool Belt Set - Olive Drab ($549.00 - $599.00 CAD).
-  * 464010 / OCC-464010 = Electrician Tool Belt Set - Gunmetal Grey ($549.00 - $599.00 CAD).
-  * 454030 / OCC-454030 = Carpenter Tool Belt Set - Gunmetal Grey ($549.00 CAD).
-  * Occidental / Badger Warranty: "Occidental Leather & Badger Tool Belts 2-Year Manufacturer Warranty against defects in materials and craftsmanship."
-
-- MAKITA:
-  * TW001G = 3/4" Square Drive High Torque Impact Wrench (40V Max XGT) - 1,330 ft-lbs / 1,800 N·m
-  * TW002G = 1/2" Square Drive High Torque Impact Wrench (40V Max XGT) - 1,250 ft-lbs (1,700 N·m) max fastening, 1,620 ft-lbs (2,200 N·m) nut-busting
-  * TW004G = 1/2" Square Drive Mid-Torque Impact Wrench (40V Max XGT) - Friction Ring
-  * TW005G = 3/8" Square Drive Impact Wrench (40V Max XGT)
-  * TW007G = 1/2" Square Drive Compact Impact Wrench (40V Max XGT) - Friction Ring
-  * TW008G = 1/2" Square Drive Compact Impact Wrench (40V Max XGT) - Pin Detent
-  * DTW1001 / XWT08 = 3/4" Square Drive (18V LXT)
-  * DTW1002 / XWT07 = 1/2" Square Drive (18V LXT)
-  * DTW700 / XWT17 = 1/2" Square Drive Mid-Torque (18V LXT)
-  * DTW300 / XWT15 = 1/2" Square Drive Compact (18V LXT)
-  * DTD153 / DTD172 / XDT19 = 1/4" Hex Cordless Impact Driver
-  * Suffix 'Z' indicates Bare Tool / Tool Only (batteries/charger sold separately).
-  * Suffix 'G' indicates 40V Max XGT platform; Suffix 'D'/'L' indicates 18V LXT platform.
-
-- MILWAUKEE MODULAR WET/DRY VACUUM SYSTEM & MOTOR HEADS:
-  * 0931-20 = 6.5 Peak HP Wet/Dry Vacuum Motor Head (Corded 120V AC, 12 Amp motor head for Milwaukee modular vacuum tanks 0912-20, 0922-20, 0932-20 - $189.00 - $219.00 CAD MSRP).
-  * 0911-20 = M18 FUEL™ Wet/Dry Vacuum Motor Head (Bare Tool - Single 18V Battery Platform) ($249.00 - $269.00 CAD).
-  * 0921-20 = M18 FUEL™ Dual-Battery Wet/Dry Vacuum Motor Head (Bare Tool - Dual 18V Battery Platform) ($299.00 - $329.00 CAD).
-  * 0910-20 = M18 FUEL™ 6 Gallon Wet/Dry Vacuum ($399.00 CAD).
-  * 0920-20 = M18 FUEL™ 9 Gallon Wet/Dry Vacuum ($449.00 CAD).
-  * 0930-20 = M18 FUEL™ Dual-Battery 12 Gallon Wet/Dry Vacuum ($499.00 CAD).
-  * 0912-20 = 6 Gallon Wet/Dry Vacuum Tank ($119.00 CAD).
-  * 0922-20 = 9 Gallon Wet/Dry Vacuum Tank ($139.00 CAD).
-  * 0932-20 = 12 Gallon Wet/Dry Vacuum Tank ($159.00 CAD).
-  * 0933-19 = Wet/Dry Vacuum Premium Cart ($179.00 CAD).
-  * 0892-20 / 0892 = M18™ Brushless Handheld Vacuum (Bare Tool / Tool Only). High-efficiency brushless motor, integrated cyclonic debris separator, HEPA dry-cleanable filter, 40 CFM airflow, 63" water lift suction, shadowless LED ring nozzle light, removable 0.25-gallon tank with quick-release latch. Includes: (1) 0892-20 M18 Brushless Handheld Vacuum, (1) HEPA Filter (49-90-1948), (1) Extension Wand, (1) Crevice Tool, (1) Floor Tool, (1) Flexible Hose, (1) Brush Tool ($179.00 - $199.00 CAD MSRP).
-  * 0880-20 = M18™ 2-Gallon Wet/Dry Vacuum ($179.00 - $199.00 CAD).
-  * 0882-20 = M18™ Compact Vacuum ($169.00 - $189.00 CAD).
-  * 0885-20 / 0885-21 = M18 FUEL™ 3-in-1 Backpack Vacuum.
-  * 0940-20 = M12™ Compact Vacuum ($119.00 CAD).
-  * 0970-20 = M18 FUEL™ PACKOUT™ 2.5 Gallon Wet/Dry Vacuum ($279.00 - $299.00 CAD).
-  * 0960-20 = M12 FUEL™ 1.6 Gallon Wet/Dry Vacuum ($219.00 - $249.00 CAD).
-  * 2767 = M18 FUEL 1/2" High Torque Impact Wrench w/ Friction Ring
-  * 2766 = M18 FUEL 1/2" High Torque Impact Wrench w/ Pin Detent
-  * 2864 = M18 FUEL ONE-KEY 3/4" High Torque Impact Wrench
-  * 2967 = M18 FUEL 1/2" High Torque Impact Wrench (Gen 2)
-  * 2962 = M18 FUEL 1/2" Mid-Torque Impact Wrench
-  * 2960 = M18 FUEL 3/8" Mid-Torque Impact Wrench
-  * 2854 = M18 FUEL 3/8" Compact Impact Wrench
-  * 2853 / 2953 = M18 FUEL 1/4" Hex Impact Driver
-  * 2572 / 2572B = M12 AIRSNAKE™ Drain Cleaning Air Gun
-  * 2470 = M12 Cordless Plastic Pipe Shear
-  * 2471 = M12 Cordless Copper Tubing Cutter
-  * 2771 = M18 Cordless Transfer Pump
-  * 2821 / 2822 = M18 FUEL SAWZALL® Reciprocating Saw
-  * 2526 = M12 FUEL Oscillating Multi-Tool
-  * 2836 = M18 FUEL Oscillating Multi-Tool
-  * 2522 = M12 FUEL 3" Compact Cut Off Tool
-  * 49-66-6801 = 19PC SHOCKWAVE™ Impact Duty 3/8" Drive Metric Deep Well PACKOUT™ Socket Set (Includes: 6mm, 7mm, 8mm, 9mm, 10mm, 11mm, 12mm, 13mm, 14mm, 15mm, 16mm, 17mm, 18mm, 19mm, 20mm, 21mm, 22mm, 23mm, 24mm deep impact sockets, removable socket storage tray, and compact PACKOUT organizer case - $159.00 - $179.00 CAD MSRP).
-  * 49-66-6800 = 15PC SHOCKWAVE™ Impact Duty 3/8" Drive SAE Deep Well PACKOUT™ Socket Set ($139.00 - $159.00 CAD).
-  * 49-66-6802 = 31PC SHOCKWAVE™ Impact Duty 3/8" Drive SAE & Metric Deep Well PACKOUT™ Socket Set ($249.00 - $279.00 CAD).
-  * 49-66-6803 = 43PC SHOCKWAVE™ Impact Duty 3/8" Drive SAE & Metric Standard & Deep PACKOUT™ Socket Set ($299.00 - $349.00 CAD).
-  * 49-66-6804 = 29PC SHOCKWAVE™ Impact Duty 1/2" Drive Metric Deep Well PACKOUT™ Socket Set ($249.00 - $289.00 CAD).
-  * 49-66-6805 = 31PC SHOCKWAVE™ Impact Duty 1/2" Drive SAE & Metric Deep Well PACKOUT™ Socket Set ($279.00 - $319.00 CAD).
-  * 49-66-6806 = 19PC SHOCKWAVE™ Impact Duty 1/2" Drive Metric Deep Well PACKOUT™ Socket Set ($189.00 - $219.00 CAD).
-  * 49-66-6831 = 19PC 3/8" Drive Metric PACKOUT Socket Storage Tray Only ($29.99 CAD).
-  * Suffix '-20' = Bare Tool / Tool Only; Suffix '-21'/'-22' = Battery Kit.
-
-- DEWALT:
-  * DCF900 = 20V MAX XR 1/2" High Torque Impact Wrench w/ Hog Ring
-  * DCF899 = 20V MAX XR 1/2" High Torque Impact Wrench w/ Detent Pin
-  * DCF961 = 20V MAX XR 1/2" Ultra High Torque Impact Wrench
-  * DCF901 = 12V MAX 1/2" Impact Wrench; DCF903 = 12V MAX 3/8" Impact Wrench
-  * DCF921 = 20V MAX ATOMIC 1/2" Impact Wrench; DCF923 = 20V MAX ATOMIC 3/8" Impact Wrench
-  * DCF850 / DCF887 = 20V MAX 1/4" Hex Impact Driver
-  * DCK229 / DCK229P1 = 20V MAX XR Brushless 3/8" & 1/2" Sealed Head Ratchet (DCF510) + DCF891B 1/2" Mid-Range Impact Wrench Kit (Includes (1) DCF510 Sealed Head Ratchet with interchangeable 3/8" & 1/2" anvils, (1) DCF891B 1/2" Mid-Range Impact Wrench with Hog Ring, (1) DCB205 5.0Ah XR Battery, (1) DCB115 Charger, and Contractor Tool Bag - $549.00 CAD MSRP).
-  * Suffix 'B' = Bare Tool; Suffix 'P1'/'P2'/'D1'/'E2' = Battery Kit.
-
-- MALCO:
-  * M2000S = Replacement Spring for Max2000 Series Aviation Snips
-  * M2001 / M2002 / M2003 / M2004 / M2005 = Max2000 Aviation Snips (Left, Right, Straight, etc.)
-  * C5A / C5R = 5-Blade Pipe Crimper
-
-- KNIPEX:
-  * 87 01 250 = Cobra Water Pump Pliers 250mm (10")
-  * 87 51 180 = Cobra Extra Slim Water Pump Pliers 180mm (7-1/4")
-  * 86 01 250 = Pliers Wrench 250mm (10")
-  * 74 01 200 = High Leverage Diagonal Cutters 200mm (8")
-
-- STEALTH / STEALTH AIR / STANLEY WET DRY VAC:
-  * ST08-2502 / 08-2502 = 2-1/2" x 20" Universal Wet/Dry Vacuum Extension Wand ($9.99 - $14.99 CAD). Fits all standard 2-1/2" diameter wet/dry vacuum hoses. High-durability black poly construction for workshop, auto detailing, and jobsite clean-up.
-  * ST08-2518 / 08-2518 = 2-1/2" x 8' Locking Wet/Dry Vacuum Hose ($24.99 - $32.99 CAD).
-  * ST08-2566 / 08-2566 = Wet/Dry Vacuum Cartridge Filter for 5-18 Gallon Vacuums ($24.99 - $34.99 CAD).
-  * ST08-2503 = 2-1/2" Utility Nozzle for Wet/Dry Vacuums ($9.99 - $12.99 CAD).
-  * ST08-2504 = 2-1/2" Crevice Tool for Wet/Dry Vacuums ($8.99 - $11.99 CAD).
-  * ST08-2505 = 2-1/2" Floor Nozzle with Squeegee ($14.99 - $19.99 CAD).
-  * ST08-2506 = 2-1/2" Round Dusting Brush ($8.99 - $11.99 CAD).
-
-- OX TOOLS / AUX TOOLS:
-  * OX-P0244 / P0244 = OX Pro Box Spirit Level Series (Heavy-duty aluminum box-beam profile, Dual-View Plumb Site® vial, UV-resistant magnified acrylic block vials ±0.0005 in/in / 0.5 mm/m precision).
-  * OX-P024424 / OX-P024496 / 96" = 96" (2400mm / 8ft) Non-Magnetic Pro Box Spirit Level ($179.00 - $199.00 CAD)
-  * Warranty for OX Levels: "OX Tools Lifetime Vial Warranty: Vials are guaranteed for life against leakage, fogging, and loss of accuracy (±0.0005 in/in / 0.5 mm/m); backed by OX Tools 3-Year Limited Manufacturer Warranty on level frame and body."
-`;
+const TOOL_TAXONOMY_RULES = "";
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -309,7 +176,7 @@ export default async function handler(req, res) {
       for (const cand of candidateUrls) {
         if (cand && typeof cand === 'string' && cand.startsWith('http')) {
           const lower = cand.toLowerCase();
-          if (!NON_PRODUCT_BLOCKLIST.some(k => lower.includes(k))) {
+          if (!NON_PRODUCT_BLOCKLIST.some(k => lower.includes(k)) && isImageMatchingSkuModel(imgUrl, brand, sku)) {
             addValidImage(cand);
           }
         }
@@ -535,12 +402,13 @@ export default async function handler(req, res) {
                 const olMatches = pHtml.match(/https?:\/\/[^"']+\.(?:jpg|jpeg|png|webp)/gi) || [];
                 for (const oImg of olMatches) {
                   const lower = oImg.toLowerCase();
-                  if (cleanMfrSku.includes('PUR') && (lower.includes('tan') || lower.includes('desert') || lower.includes('green') || lower.includes('odg') || lower.includes('black') || lower.includes('blue'))) continue;
-                  if (cleanMfrSku.includes('ODG') && (lower.includes('purple') || lower.includes('violet') || lower.includes('tan') || lower.includes('desert') || lower.includes('blue'))) continue;
-                  if (cleanMfrSku.includes('TAN') && (lower.includes('purple') || lower.includes('violet') || lower.includes('green') || lower.includes('odg') || lower.includes('blue') || lower.includes('black'))) continue;
+                  
+                  
+                  
                   if (
-                    (lower.includes('arkpro') || lower.includes('arkpurple') || lower.includes('violet') || lower.includes('purple') || lower.includes('olightstore')) &&
-                    !NON_PRODUCT_BLOCKLIST.some(k => lower.includes(k))
+                    !lower.includes("logo") &&
+                    !NON_PRODUCT_BLOCKLIST.some(k => lower.includes(k)) &&
+                    isImageMatchingSkuModel(oImg, brand, sku)
                   ) {
                     const canonical = normalizeAndCanonicalizeUrl(oImg);
                     const key = getCanonicalAssetKey(canonical);
@@ -559,17 +427,12 @@ export default async function handler(req, res) {
                 if (ogUrl.startsWith('//')) ogUrl = 'https:' + ogUrl;
                 else if (ogUrl.startsWith('/')) ogUrl = new URL(pUrl).origin + ogUrl;
                 const ogLower = ogUrl.toLowerCase();
-                if (cleanMfrSku.includes('461055') && (ogLower.includes('grey') || ogLower.includes('gunmetal') || ogLower.includes('coyote') || ogLower.includes('sage') || ogLower.includes('461010') || ogLower.includes('461030'))) {
-                  // Skip conflicting color
-                } else if (cleanMfrSku.includes('PUR') && (ogLower.includes('tan') || ogLower.includes('desert') || ogLower.includes('green') || ogLower.includes('odg') || ogLower.includes('black') || ogLower.includes('blue'))) {
-                  // Skip conflicting color
-                } else if (!NON_PRODUCT_BLOCKLIST.some(k => ogLower.includes(k))) {
+                if (!NON_PRODUCT_BLOCKLIST.some(k => ogLower.includes(k)) && isImageMatchingSkuModel(ogUrl, brand, sku)) {
                   const canonical = normalizeAndCanonicalizeUrl(ogUrl);
                   const key = getCanonicalAssetKey(canonical);
                   if (!seenAssetKeys.has(key)) {
                     seenAssetKeys.add(key);
-                    if (isMfrDomain) mfrStudioImages.push(canonical);
-                    else secondaryImages.push(canonical);
+                    mfrStudioImages.push(canonical);
                   }
                 }
               }
@@ -589,11 +452,10 @@ export default async function handler(req, res) {
       // Universal Direct Exact-Image Search with tool context
       if (mfrStudioImages.length + secondaryImages.length < 4) {
         try {
-          const toolCategoryHint = lowerBrand.includes('badger') || lowerBrand.includes('occidental') ? 'tool belt' : (lowerBrand.includes('olight') ? 'flashlight' : '');
           const bQueries = [
-            `"${brand}" "${sku}" ${toolCategoryHint}`.trim(),
-            `"${brand}" "${cleanMfrSku}" ${toolCategoryHint}`.trim(),
-            `"${cleanMfrSku}" ${toolCategoryHint}`.trim()
+            `"${brand}" "${sku}"`.trim(),
+            `"${brand}" "${cleanMfrSku}"`.trim(),
+            `"${cleanMfrSku}"`.trim()
           ];
           for (const bq of bQueries) {
             const bUrl = `https://www.bing.com/images/async?q=${encodeURIComponent(bq)}&first=0&count=15&mmasync=1`;
@@ -605,9 +467,7 @@ export default async function handler(req, res) {
                 let imgUrl = m.replace(/murl&quot;:&quot;/i, '').replace(/\\\//g, '/').trim();
                 if (imgUrl.match(/\.(jpg|jpeg|png|webp)($|\?)/i) && !imgUrl.includes('bing.com') && !imgUrl.includes('microsoft.com')) {
                   const lower = imgUrl.toLowerCase();
-                  if (cleanMfrSku.includes('461055') && (lower.includes('grey') || lower.includes('gunmetal') || lower.includes('coyote') || lower.includes('sage') || lower.includes('461010') || lower.includes('461030'))) continue;
-                  if (cleanMfrSku.includes('PUR') && (lower.includes('tan') || lower.includes('desert') || lower.includes('green') || lower.includes('odg') || lower.includes('black') || lower.includes('blue'))) continue;
-                  if (!NON_PRODUCT_BLOCKLIST.some(k => lower.includes(k))) {
+                  if (!NON_PRODUCT_BLOCKLIST.some(k => lower.includes(k)) && isImageMatchingSkuModel(imgUrl, brand, sku)) {
                     const canonical = normalizeAndCanonicalizeUrl(imgUrl);
                     const assetKey = getCanonicalAssetKey(canonical);
                     if (!seenAssetKeys.has(assetKey)) {
@@ -689,7 +549,7 @@ OUTPUT STRICTLY A VALID JSON OBJECT:
 }`;
 
       const ai = new GoogleGenAI({ apiKey });
-      const modelsToTry = ['gemini-3.7-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemini-3.5-flash', 'gemini-3.5-flash-lite'];
+      const modelsToTry = ['gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemini-3.5-flash-lite', 'gemini-3.7-flash'];
       let parsedData = null;
 
       for (const m of modelsToTry) {
