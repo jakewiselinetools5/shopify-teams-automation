@@ -1,0 +1,18 @@
+﻿services:
+  - type: web
+    name: wiselinetools-catalog-studio
+    env: node
+    plan: starter
+    buildCommand: npm install && npm run build
+    startCommand: node server.js
+    envVars:
+      - key: NODE_VERSION
+        value: 22.14.0
+      - key: SHOPIFY_STORE_DOMAIN
+        value: wise-line-tools-one.myshopify.com
+      - key: SHOPIFY_API_VERSION
+        value: 2025-01
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: SHOPIFY_ADMIN_ACCESS_TOKEN
+        sync: false
