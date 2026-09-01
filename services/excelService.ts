@@ -154,7 +154,6 @@ export const getImageFingerprint = (url: string): string => {
   if (!url || typeof url !== 'string') return '';
   const trimmed = url.trim();
   if (trimmed.startsWith('data:')) {
-    // For base64 images, use the first 120 chars as fingerprint
     return trimmed.substring(0, 120);
   }
 
@@ -163,56 +162,53 @@ export const getImageFingerprint = (url: string): string => {
     const hostname = parsed.hostname.toLowerCase().replace(/^www\./, '');
     let pathname = parsed.pathname.toLowerCase();
 
-    // 1. Scene7 / Adobe Dynamic Media (e.g. /is/image/milwaukeetool/48-22-8424_hero?$...)
-    if (hostname.includes('scene7') || hostname.includes('milwaukeetool') || hostname.includes('sbdinc') || hostname.includes('dewalt')) {
-      const isImageMatch = pathname.match(/\/is\/image\/[^\/]+\/([^\/?#]+)/i);
-      if (isImageMatch) {
-        return `scene7:${isImageMatch[1].toLowerCase()}`;
+    // 1. DeWalt / Stanley Black & Decker CDN (assets.dewalt.com, assets.dewalt.ca, bynder.sbdinc.com)
+    if (hostname.includes('dewalt') || hostname.includes('sbdinc')) {
+      const match = pathname.match(/([a-z0-9_-]+)(?:_(?:1280|1680|320|640|1000|large|small))?\.(?:webp|jpg|jpeg|png)$/i);
+      if (match) {
+        let base = match[1].toLowerCase().replace(/_(?:1280|1680|320|640|1000)$/, '');
+        return `dewalt:${base}`;
       }
     }
 
-    // 2. Shopify CDN (e.g. /files/48-22-8424_hero_1024x1024.jpg or /products/48-22-8424_large.png)
-    if (hostname.includes('shopify') || hostname.includes('cdn.shopify.com')) {
-      // Strip resolution suffixes like _1024x1024, _1024x1024, _grande, _medium, _small, etc.
+    // 2. Milwaukee Tool Scene7 & Media CDN
+    if (hostname.includes('milwaukeetool')) {
+      const isImageMatch = pathname.match(/\/is\/image\/[^\/]+\/([^\/?#]+)/i);
+      if (isImageMatch) {
+        return `milwaukee:${isImageMatch[1].toLowerCase()}`;
+      }
+      const scMatch = pathname.match(/\/sc\/([a-f0-9]{20,})/i);
+      if (scMatch) {
+        return `milwaukee_sc:${scMatch[1].toLowerCase()}`;
+      }
+    }
+
+    // 3. Shopify CDN
+    if (hostname.includes('shopify') || pathname.includes('/cdn/shop/')) {
       const cleanedShopify = pathname.replace(/_(?:pico|icon|thumb|small|compact|medium|large|grande|\d+x\d*|x\d+)\.(jpg|jpeg|png|webp|gif)$/i, '.$1');
       const filenameMatch = cleanedShopify.match(/\/([^\/?#]+)$/);
       if (filenameMatch) {
-        return `shopify:${filenameMatch[1].toLowerCase()}`;
+        const baseName = filenameMatch[1].toLowerCase().replace(/[-_]ecomm.*$/, '').replace(/__\d+.*$/, '');
+        return `shopify:${baseName}`;
       }
     }
 
-    // 3. Amazon Media (e.g. /images/I/71xyz._AC_SL1500_.jpg)
-    if (hostname.includes('amazon')) {
-      const amzMatch = pathname.match(/\/([A-Za-z0-9\-_]{8,})\.[^.\/]+\.(jpg|jpeg|png|webp)/i) || pathname.match(/\/([A-Za-z0-9\-_]{8,})\.(jpg|jpeg|png|webp)/i);
-      if (amzMatch) {
-        return `amazon:${amzMatch[1].toLowerCase()}`;
-      }
+    // 4. BigCommerce / Stencil CDN
+    if (pathname.includes('/stencil/')) {
+      const lastSeg = pathname.split('/').filter(Boolean).pop() || '';
+      const baseSeg = lastSeg.replace(/__\d+.*$/, '').replace(/[-_]ecomm.*$/, '');
+      return `stencil:${baseSeg.toLowerCase()}`;
     }
 
-    // 4. Home Depot (thdstatic.com / homedepot.ca)
-    if (hostname.includes('thdstatic') || hostname.includes('homedepot')) {
-      const hdMatch = pathname.match(/\/([a-f0-9\-]{20,})\//i) || pathname.match(/\/([^\/?#]+?)(?:_(?:100|145|300|400|600|1000))?\.(?:jpg|jpeg|png|webp)/i);
-      if (hdMatch) {
-        return `homedepot:${hdMatch[1].toLowerCase()}`;
-      }
-    }
-
-    // 5. Cloudinary / Imgix
-    if (hostname.includes('cloudinary') || hostname.includes('imgix')) {
-      const lastSegment = pathname.split('/').filter(Boolean).pop() || '';
-      return `cdn:${lastSegment.toLowerCase()}`;
-    }
-
-    // 6. Generic clean filename match (strip dimensions, cachebusters, and common prefixes)
+    // 5. Generic clean filename match (cross-CDN unified key)
     const baseFilename = pathname.split('/').filter(Boolean).pop() || '';
     if (baseFilename) {
-      // Strip resolution/dimension stamps like _1000x1000, -800x800, _2000, @2x
       const normalizedFilename = baseFilename
-        .replace(/[-_](?:\d+x\d*|\d{3,4})(?=\.[a-z0-9]+$)/gi, '')
+        .replace(/[-_](?:\d+x\d*|\d{3,4}|1280|1680|320|640)(?=\.[a-z0-9]+$)/gi, '')
         .replace(/@\d+x(?=\.[a-z0-9]+$)/gi, '')
         .toLowerCase();
       
-      return `${hostname}:${normalizedFilename}`;
+      return `file:${normalizedFilename}`;
     }
 
     return `${hostname}${pathname}`;

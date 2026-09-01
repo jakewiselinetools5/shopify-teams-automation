@@ -15,11 +15,13 @@ function isImageMatchingSkuModel(imgUrl, brand, sku) {
     return false;
   }
 
-  // Banner, flags, and site asset filters
+  // Site navigation, social icons, banners, flags, and UI elements
   if (lower.includes('1920x960') || lower.includes('930x600') || lower.includes('70x30') || 
       lower.includes('country/') || lower.includes('/flags/') || lower.includes('ca.png') || 
       lower.includes('banner') || lower.includes('header') || lower.includes('slider') ||
-      lower.includes('icon') || lower.includes('logo') || lower.includes('watermark')) {
+      lower.includes('icon') || lower.includes('logo') || lower.includes('watermark') ||
+      lower.includes('linkedin') || lower.includes('instagram') || lower.includes('nav-') ||
+      lower.includes('menu-') || lower.includes('lang-') || lower.includes('makita.jpg')) {
     return false;
   }
 
@@ -38,15 +40,17 @@ function isImageMatchingSkuModel(imgUrl, brand, sku) {
     const numMatch = lowerSku.match(/([0-9]{4})/);
     if (numMatch) {
       const modelNum = numMatch[1];
-      if (!filename.includes(modelNum) && !lower.includes('milwaukeetool.com/--/web-images/sc/')) {
+      if (!filename.includes(modelNum) && !lower.includes('milwaukeetool') && !lower.includes('/--/web-images/sc/')) {
         return false;
       }
     }
   } 
-  // 3. Makita strict model isolation
+  // 3. Makita strict model isolation (Require core model digits in filename)
   else if (lowerBrand.includes('makita')) {
-    const modelPrefix = lowerSku.slice(0, 5);
-    if (modelPrefix.length >= 4 && !filename.includes(modelPrefix) && !filename.includes(lowerSku)) {
+    const numMatch = lowerSku.match(/([0-9]{3,4})/);
+    const prefixMatch = lowerSku.match(/^([a-z]{2,3}[0-9]{2,3})/);
+    const target = prefixMatch ? prefixMatch[1] : (numMatch ? numMatch[1] : lowerSku.slice(0, 5));
+    if (!filename.includes(target) && !filename.includes(lowerSku)) {
       return false;
     }
   }
@@ -76,6 +80,7 @@ function isImageMatchingSkuModel(imgUrl, brand, sku) {
 }
 
 const NON_PRODUCT_BLOCKLIST = [
+  'linkedin', 'instagram', 'twitter', 'facebook', 'tiktok', 'nav-', 'menu-', 'lang-', 'header-', 'footer-', 'badge-', 'icon-', '-icn', 'icn-', 'app-store', 'google-play',
   'googleusercontent.com', 'blogger_img_proxy', 'blogspot.com',
   'pinimg.com', 'pinterest.com', 'vecteezy', 'freepik',
   'shutterstock', 'gettyimages', 'istockphoto', 'stock-photo', 'clipart', 'vector',
@@ -138,11 +143,16 @@ function normalizeAndCanonicalizeUrl(rawUrl) {
 
 function getCanonicalAssetKey(url) {
   try {
-    const u = new URL(url);
-    let pathname = u.pathname.toLowerCase();
-    pathname = pathname.replace(/_(?:sm|md|lg|thumb|medium|large|small|_1024x1024)(?=\.[a-z0-9]+$)/i, '');
-    const filename = pathname.split('/').pop() || '';
-    return `${u.hostname}/${filename}`;
+    const clean = url.trim().replace(/^https?:\/\//i, '').split('?')[0];
+    let filename = clean.split('/').pop() || '';
+    filename = filename
+      .toLowerCase()
+      .replace(/\.(webp|jpg|jpeg|png|gif)$/i, '')
+      .replace(/_(?:1280|1680|320|640|1024x1024|2048x2048|lg|md|sm|thumb|medium|large|small)/g, '')
+      .replace(/__\d+.*$/, '')
+      .replace(/[-_]ecomm.*$/i, '')
+      .replace(/^ecomm[-_]/i, '');
+    return filename;
   } catch {
     return url.toLowerCase();
   }
@@ -182,7 +192,7 @@ export default async function handler(req, res) {
       const candidateProductUrls = [];
       const lowerBrand = brand.toLowerCase();
 
-      // 1. Direct official manufacturer URLs & High-Res Studio CDNs
+            // 1. Direct official manufacturer URLs & High-Res Studio CDNs
       if (lowerBrand.includes('dewalt')) {
         const dSku = cleanMfrSku.toUpperCase();
         candidateProductUrls.push(`https://www.dewalt.com/product/${cleanMfrSku.toLowerCase()}`);
@@ -195,16 +205,26 @@ export default async function handler(req, res) {
         discoveredImages.push(`https://assets.dewalt.com/NAG/PRODUCT/IMAGES/HIRES/WHITEBG/${dSku}_3_1280.webp`);
         discoveredImages.push(`https://assets.dewalt.com/NAG/PRODUCT/IMAGES/HIRES/WHITEBG/${dSku}_4_1280.webp`);
         discoveredImages.push(`https://assets.dewalt.com/NAG/PRODUCT/IMAGES/HIRES/WHITEBG/${dSku}_A1_1280.webp`);
-        discoveredImages.push(`https://assets.dewalt.ca/NAG/PRODUCT/IMAGES/HIRES/WHITEBG/${dSku}_1_1280.webp`);
       } else if (lowerBrand.includes('milwaukee')) {
+        const mSku = cleanMfrSku.toUpperCase();
         candidateProductUrls.push(`https://www.milwaukeetool.ca/Products/${cleanMfrSku}`);
         candidateProductUrls.push(`https://www.milwaukeetool.com/Products/${cleanMfrSku}`);
-        discoveredImages.push(`https://milwaukeetool.scene7.com/is/image/MilwaukeeTool/${cleanMfrSku}?wid=1000&hei=1000&fit=fit&qlt=85,0&resMode=sharp2`);
-        discoveredImages.push(`https://milwaukeetool.scene7.com/is/image/MilwaukeeTool/${cleanMfrSku}_1?wid=1000&hei=1000&fit=fit&qlt=85,0&resMode=sharp2`);
+        candidateProductUrls.push(`https://www.milwaukeetool.ca/products/details/${cleanMfrSku.toLowerCase()}`);
+        
+        discoveredImages.push(`https://milwaukeetool.scene7.com/is/image/MilwaukeeTool/${mSku}?wid=1000&hei=1000&fit=fit&qlt=85,0&resMode=sharp2`);
+        discoveredImages.push(`https://milwaukeetool.scene7.com/is/image/MilwaukeeTool/${mSku}_1?wid=1000&hei=1000&fit=fit&qlt=85,0&resMode=sharp2`);
+        discoveredImages.push(`https://milwaukeetool.scene7.com/is/image/MilwaukeeTool/${mSku}_2?wid=1000&hei=1000&fit=fit&qlt=85,0&resMode=sharp2`);
+        discoveredImages.push(`https://milwaukeetool.scene7.com/is/image/MilwaukeeTool/${mSku}_3?wid=1000&hei=1000&fit=fit&qlt=85,0&resMode=sharp2`);
+        discoveredImages.push(`https://milwaukeetool.scene7.com/is/image/MilwaukeeTool/${mSku}_4?wid=1000&hei=1000&fit=fit&qlt=85,0&resMode=sharp2`);
+        discoveredImages.push(`https://milwaukeetool.scene7.com/is/image/MilwaukeeTool/${mSku}_hero?wid=1000&hei=1000&fit=fit&qlt=85,0&resMode=sharp2`);
       } else if (lowerBrand.includes('makita')) {
+        const makSku = cleanMfrSku.toLowerCase();
         candidateProductUrls.push(`https://www.makita.ca/index2.php?event=toolsearch&toolno=${encodeURIComponent(cleanMfrSku)}`);
         candidateProductUrls.push(`https://www.makitatools.com/products/details/${cleanMfrSku}`);
-        discoveredImages.push(`https://dtis8tdmkp4fg.cloudfront.net/products/cordless/xgt-40v-80v-max/drills-fastening/impact-wrenches/${cleanMfrSku.toLowerCase()}/${cleanMfrSku.toLowerCase()}-001.jpg`);
+        
+        discoveredImages.push(`https://dtis8tdmkp4fg.cloudfront.net/products/cordless/xgt-40v-80v-max/drills-fastening/impact-wrenches/${makSku}/${makSku}-001.jpg`);
+        discoveredImages.push(`https://dtis8tdmkp4fg.cloudfront.net/products/cordless/xgt-40v-80v-max/drills-fastening/impact-wrenches/${makSku}/${makSku}-002.jpg`);
+        discoveredImages.push(`https://dtis8tdmkp4fg.cloudfront.net/products/cordless/lxt-18v/drills-fastening/impact-drivers/${makSku}/${makSku}-001.jpg`);
       } else if (lowerBrand.includes('stealth')) {
         candidateProductUrls.push(`https://stealthvacs.com/products/${cleanMfrSku.toLowerCase()}`);
         candidateProductUrls.push(`https://www.stealthvacs.com/products/${sku.toLowerCase()}`);
@@ -321,6 +341,19 @@ export default async function handler(req, res) {
             if (pRes.ok) {
               let pHtml = await pRes.text();
               pHtml = pHtml.replace(/\\\//g, '/').replace(/\\"/g, '"');
+                            if (pUrl.includes('milwaukeetool.')) {
+                const mkeGalleryRegex = /(?:https:\/\/www\.milwaukeetool\.(?:com|ca))?\/--\/web-images\/sc\/([a-f0-9]{20,})/gi;
+                let mm;
+                while ((mm = mkeGalleryRegex.exec(pHtml)) !== null) {
+                  const fullImg = `https://www.milwaukeetool.ca/--/web-images/sc/${mm[1]}`;
+                  const key = getCanonicalAssetKey(fullImg);
+                  if (!seenAssetKeys.has(key)) {
+                    seenAssetKeys.add(key);
+                    mfrStudioImages.push(fullImg);
+                  }
+                }
+              }
+
               const isMfrDomain = pUrl.includes('milwaukeetool.') || pUrl.includes('dewalt.') || pUrl.includes('makitatools.') || pUrl.includes('stealthvacs.') || pUrl.includes('malcopro.') || pUrl.includes('knipex.') || pUrl.includes('wihatools.') || pUrl.includes('oxtools.') || pUrl.includes('badgertoolbelts.') || pUrl.includes('occidentalleather.');
 
               if (isMfrDomain && !officialMfrTitle) {
@@ -460,11 +493,36 @@ OUTPUT STRICTLY A VALID JSON OBJECT:
         }
       }
 
-      // Pre-validate all candidate images with parallel HTTP GET/HEAD verification
+                  // Pre-validate all candidate images with parallel HTTP GET/HEAD verification
+      const lowerSku = String(sku || '').toLowerCase();
+      const isBareTool = lowerSku.endsWith('b') || lowerSku.endsWith('-20') || lowerSku.endsWith('z') || lowerSku.includes('bare') || lowerSku.endsWith('-0');
+
       const rawCandidateImages = Array.from(new Set(discoveredImages))
-        .filter(url => isImageMatchingSkuModel(url, brand, sku));
+        .filter(url => isImageMatchingSkuModel(url, brand, sku))
+        .filter(url => {
+          if (!isBareTool) return true;
+          const lower = url.toLowerCase();
+          const filename = (lower.split('?')[0].split('/').pop() || '').toLowerCase();
+          
+          if (lowerBrand.includes('dewalt')) {
+            if (filename.includes('_k1') || filename.includes('_k2') || filename.includes('p1_') || filename.includes('p2_') || filename.includes('e1_') || filename.includes('e2_')) {
+              return false;
+            }
+          } else if (lowerBrand.includes('milwaukee')) {
+            if (filename.includes('-22_') || filename.includes('-21_') || filename.includes('-24_') || filename.includes('packout_kit')) {
+              return false;
+            }
+          } else if (lowerBrand.includes('makita')) {
+            if (filename.includes('m201') || filename.includes('t2_') || filename.includes('ct_')) {
+              return false;
+            }
+          }
+          return true;
+        });
 
       const validatedCleanImages = [];
+      const seenFingerprints = new Set();
+
       await Promise.allSettled(rawCandidateImages.slice(0, 25).map(async (imgUrl) => {
         try {
           const checkRes = await fetch(imgUrl, {
@@ -475,7 +533,11 @@ OUTPUT STRICTLY A VALID JSON OBJECT:
           if (checkRes.ok) {
             const cType = checkRes.headers.get('content-type') || '';
             if (cType.includes('image') || cType.includes('application/octet-stream') || checkRes.status === 200) {
-              validatedCleanImages.push(imgUrl);
+              const baseKey = getCanonicalAssetKey(imgUrl);
+              if (!seenFingerprints.has(baseKey)) {
+                seenFingerprints.add(baseKey);
+                validatedCleanImages.push(imgUrl);
+              }
             }
           }
         } catch (e) {}
@@ -483,8 +545,8 @@ OUTPUT STRICTLY A VALID JSON OBJECT:
 
       // Sort images: official white-background studio images first, then distributor gallery
       validatedCleanImages.sort((a, b) => {
-        const aHero = a.includes('assets.dewalt') || a.includes('milwaukeetool') || a.includes('_1_1280') || a.includes('_1.jpg') || a.includes('001.jpg');
-        const bHero = b.includes('assets.dewalt') || b.includes('milwaukeetool') || b.includes('_1_1280') || b.includes('_1.jpg') || b.includes('001.jpg');
+        const aHero = a.includes('_1_1280') || a.includes('_1.jpg') || a.includes('001.jpg');
+        const bHero = b.includes('_1_1280') || b.includes('_1.jpg') || b.includes('001.jpg');
         if (aHero && !bHero) return -1;
         if (!aHero && bHero) return 1;
         return 0;
