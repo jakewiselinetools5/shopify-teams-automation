@@ -119,7 +119,31 @@ export default async function handler(req, res) {
   const { pathname } = parsedUrl;
 
   if (pathname === '/api/health') {
-    return res.status(200).json({ status: 'ok', serverTime: new Date().toISOString() });
+    
+      if (parsedData) {
+        // Deterministic Title & Identity Guardrail: Manufacturer H1 is ground truth
+        if (officialMfrTitle && officialMfrTitle.length > 3) {
+          const lowerParsed = (parsedData.title || '').toLowerCase();
+          const lowerMfr = officialMfrTitle.toLowerCase();
+          
+          // If official manufacturer title is a vacuum and AI drifted into radio/other
+          if (lowerMfr.includes('vacuum') && !lowerParsed.includes('vacuum') && !lowerParsed.includes('vac')) {
+            parsedData.title = `${brand} ${sku} ${officialMfrTitle}`;
+            parsedData.product_type = 'Handheld Vacuums';
+            parsedData.google_category = 'Hardware > Tools > Power Tools > Dust Extractors & Wet/Dry Vacuums';
+          } else if (lowerMfr.includes('impact wrench') && !lowerParsed.includes('impact wrench')) {
+            parsedData.title = `${brand} ${sku} ${officialMfrTitle}`;
+            parsedData.product_type = 'Impact Wrenches';
+            parsedData.google_category = 'Hardware > Tools > Power Tools > Impact Drivers & Wrenches';
+          } else if (lowerMfr.includes('pliers') && !lowerParsed.includes('plier')) {
+            parsedData.title = `${brand} ${sku} ${officialMfrTitle}`;
+            parsedData.product_type = 'Pliers';
+            parsedData.google_category = 'Hardware > Tools > Hand Tools > Pliers & Cutters';
+          }
+        }
+      }
+
+      return res.status(200).json({ status: 'ok', serverTime: new Date().toISOString() });
   }
 
   if (pathname === '/api/media/proxy') {

@@ -1,7 +1,7 @@
 import * as XLSX_PKG from 'xlsx';
 import { ProductRow, Mapping } from '../types';
 import { GoogleGenAI } from "@google/genai";
-import { resolveShopifyToolCategory } from '../constants';
+
 
 // Handle ESM import variations for xlsx-js-style
 // @ts-ignore
@@ -1786,68 +1786,12 @@ export const resolveShopifyToolCategory = (
 
   const text = `${title} ${vendor} ${sku} ${tags} ${currentCategory}`.toLowerCase();
 
-  // Storage / PACKOUT
-  if (text.includes('packout') || (text.includes('modular') && text.includes('storage'))) {
-    return 'Hardware > Tools > Tool Storage & Organization > Modular Storage Systems (PACKOUT)';
-  }
-  if (text.includes('toolbox') || text.includes('tool box') || text.includes('chest') || text.includes('cabinet') || text.includes('drawers')) {
-    return 'Hardware > Tools > Tool Storage & Organization > Tool Boxes & Chests';
-  }
-  if (text.includes('tool bag') || text.includes('backpack') || text.includes('tote')) {
-    return 'Hardware > Tools > Tool Storage & Organization > Tool Bags & Backpacks';
-  }
-  if (text.includes('tool belt') || text.includes('pouch') || text.includes('holster')) {
-    return 'Hardware > Tools > Tool Storage & Organization > Tool Belts & Pouches';
+  // 1. Vacuums, Dust Extractors & Wet/Dry Vacs (PRIORITY OVER BATTERY/CHARGER)
+  if (text.includes('vacuum') || text.includes('dust extractor') || text.includes('vac') || text.includes('dust collection') || text.includes('handheld vacuum') || text.includes('0892') || text.includes('0931') || text.includes('0911') || text.includes('0921')) {
+    return 'Hardware > Tools > Power Tools > Dust Extractors & Wet/Dry Vacuums';
   }
 
-  // Batteries & Chargers
-  if (text.includes('battery') || text.includes('charger') || text.includes('redlithium') || text.includes('flexvolt') || text.includes('powerstack')) {
-    return 'Hardware > Tools > Tool Accessories > Power Tool Batteries & Chargers';
-  }
-
-  // Lighting
-  if (text.includes('light') || text.includes('tower light') || text.includes('flood light') || text.includes('headlamp') || text.includes('lantern') || text.includes('spotlight') || text.includes('rover') || text.includes('flashlight')) {
-    return 'Hardware > Tools > Work Lights & Jobsite Lighting';
-  }
-
-  // Outdoor Power Equipment
-  if (text.includes('chainsaw') || text.includes('pole saw')) {
-    return 'Hardware > Tools > Outdoor Power Equipment > Chainsaws & Pole Saws';
-  }
-  if (text.includes('blower') && (text.includes('leaf') || text.includes('yard') || text.includes('outdoor'))) {
-    return 'Hardware > Tools > Outdoor Power Equipment > Leaf Blowers';
-  }
-  if (text.includes('string trimmer') || text.includes('edger') || text.includes('weed eater') || text.includes('line trimmer')) {
-    return 'Hardware > Tools > Outdoor Power Equipment > String Trimmers & Edgers';
-  }
-  if (text.includes('lawn mower') || text.includes('mower')) {
-    return 'Hardware > Tools > Outdoor Power Equipment > Lawn Mowers';
-  }
-  if (text.includes('hedge trimmer')) {
-    return 'Hardware > Tools > Outdoor Power Equipment > Hedge Trimmers';
-  }
-
-  // Heated Gear & Apparel
-  if (text.includes('heated') || text.includes('jacket') || text.includes('hoodie') || text.includes('vest') && text.includes('heated')) {
-    return 'Hardware > Tools > Safety & Workwear > Heated Gear & Jackets';
-  }
-  if (text.includes('glove') || text.includes('cut resistant')) {
-    return 'Hardware > Tools > Safety & Workwear > Work Gloves';
-  }
-  if (text.includes('glasses') || text.includes('goggles') || text.includes('eye protection')) {
-    return 'Hardware > Tools > Safety & Workwear > Eye Protection & Safety Glasses';
-  }
-  if (text.includes('hard hat') || text.includes('helmet')) {
-    return 'Hardware > Tools > Safety & Workwear > Hard Hats & Helmets';
-  }
-  if (text.includes('ear plug') || text.includes('earmuff') || text.includes('hearing')) {
-    return 'Hardware > Tools > Safety & Workwear > Hearing Protection';
-  }
-  if (text.includes('respirator') || text.includes('mask') || text.includes('n95')) {
-    return 'Hardware > Tools > Safety & Workwear > Dust Masks & Respirators';
-  }
-
-  // Power Saws
+  // 2. Power Saws
   if (text.includes('circular saw') || text.includes('track saw') || text.includes('worm drive')) {
     return 'Hardware > Tools > Power Tools > Power Saws > Circular Saws';
   }
@@ -1864,15 +1808,15 @@ export const resolveShopifyToolCategory = (
     return 'Hardware > Tools > Power Tools > Power Saws > Jigsaws';
   }
 
-  // Drills & Fastening
-  if (text.includes('impact wrench') || text.includes('impact driver') || text.includes('high torque impact')) {
+  // 3. Drills & Fastening & Impact Wrenches
+  if (text.includes('impact wrench') || text.includes('high torque impact') || text.includes('mid-torque impact')) {
+    return 'Hardware > Tools > Power Tools > Impact Drivers & Wrenches';
+  }
+  if (text.includes('impact driver') || text.includes('1/4" hex impact')) {
     return 'Hardware > Tools > Power Tools > Impact Drivers & Wrenches';
   }
   if (text.includes('hammer drill') || text.includes('drill/driver') || text.includes('drill driver') || text.includes('drill') || text.includes('driver')) {
     return 'Hardware > Tools > Power Tools > Drills & Drivers';
-  }
-  if (text.includes('combo kit') || text.includes('tool kit') || text.includes('2-tool') || text.includes('4-tool') || text.includes('6-tool')) {
-    return 'Hardware > Tools > Power Tools > Power Tool Combo Kits';
   }
   if (text.includes('rotary hammer') || text.includes('demolition hammer') || text.includes('sds-plus') || text.includes('sds-max') || text.includes('sds max')) {
     return 'Hardware > Tools > Power Tools > Rotary Hammers & Demolition Hammers';
@@ -1882,9 +1826,6 @@ export const resolveShopifyToolCategory = (
   }
   if (text.includes('sander') || text.includes('orbital sander') || text.includes('belt sander')) {
     return 'Hardware > Tools > Power Tools > Sanders';
-  }
-  if (text.includes('vacuum') || text.includes('dust extractor') || text.includes('vac') || text.includes('dust collection')) {
-    return 'Hardware > Tools > Power Tools > Dust Extractors & Wet/Dry Vacuums';
   }
   if (text.includes('nailer') || text.includes('stapler') || text.includes('brad nailer') || text.includes('framing nailer') || text.includes('pin nailer')) {
     return 'Hardware > Tools > Power Tools > Nailers & Staplers';
@@ -1896,8 +1837,32 @@ export const resolveShopifyToolCategory = (
     return 'Hardware > Tools > Power Tools > Heat Guns & Blowers';
   }
 
-  // Hand Tools
-  if (text.includes('plier') || text.includes('cutters') || text.includes('lineman') || text.includes('diagonal cutter') || text.includes('channel lock') || text.includes('crimper')) {
+  // 4. Jobsite Audio / Radios (ONLY if explicitly a radio/speaker)
+  if ((text.includes('radio') || text.includes('speaker') || text.includes('jobsite audio')) && !text.includes('vacuum') && !text.includes('saw') && !text.includes('drill')) {
+    return 'Hardware > Tools > Jobsite Radios, Speakers & Audio';
+  }
+
+  // 5. Lighting & Flashlights
+  if (text.includes('light') || text.includes('tower light') || text.includes('flood light') || text.includes('headlamp') || text.includes('lantern') || text.includes('spotlight') || text.includes('rover') || text.includes('flashlight')) {
+    return 'Hardware > Tools > Work Lights & Jobsite Lighting';
+  }
+
+  // 6. Tool Belts & Storage
+  if (text.includes('tool belt') || text.includes('carpenter set') || text.includes('framer set') || text.includes('pouch') || text.includes('holster') || text.includes('461055') || text.includes('461010') || text.includes('badger') || text.includes('occidental')) {
+    return 'Hardware > Tools > Tool Storage & Organization > Tool Belts & Pouches';
+  }
+  if (text.includes('packout') || (text.includes('modular') && text.includes('storage'))) {
+    return 'Hardware > Tools > Tool Storage & Organization > Modular Storage Systems (PACKOUT)';
+  }
+  if (text.includes('toolbox') || text.includes('tool box') || text.includes('chest') || text.includes('cabinet') || text.includes('drawers')) {
+    return 'Hardware > Tools > Tool Storage & Organization > Tool Boxes & Chests';
+  }
+  if (text.includes('tool bag') || text.includes('backpack') || text.includes('tote')) {
+    return 'Hardware > Tools > Tool Storage & Organization > Tool Bags & Backpacks';
+  }
+
+  // 7. Hand Tools
+  if (text.includes('plier') || text.includes('cutters') || text.includes('lineman') || text.includes('diagonal cutter') || text.includes('channel lock') || text.includes('crimper') || text.includes('cobra')) {
     return 'Hardware > Tools > Hand Tools > Pliers & Cutters';
   }
   if (text.includes('wrench') || text.includes('ratchet') || text.includes('socket set') || text.includes('torque wrench')) {
@@ -1909,48 +1874,16 @@ export const resolveShopifyToolCategory = (
   if (text.includes('tape measure') || text.includes('tape rule') || text.includes('measuring tape')) {
     return 'Hardware > Tools > Hand Tools > Measuring & Layout Tools > Tape Measures';
   }
-  if (text.includes('laser level') || text.includes('cross line laser') || text.includes('rotary laser')) {
-    return 'Hardware > Tools > Hand Tools > Measuring & Layout Tools > Laser Levels';
-  }
   if (text.includes('level') || text.includes('torpedo level') || text.includes('box level') || text.includes('digital level')) {
     return 'Hardware > Tools > Hand Tools > Measuring & Layout Tools > Levels';
   }
-  if (text.includes('hammer') || text.includes('mallet') || text.includes('sledge')) {
-    return 'Hardware > Tools > Hand Tools > Hammers & Mallets';
-  }
-  if (text.includes('knife') || text.includes('utility knife') || text.includes('blade') || text.includes('fastback') || text.includes('multi-tool')) {
-    return 'Hardware > Tools > Hand Tools > Utility Knives, Blades & Multi-Tools';
-  }
-  if (text.includes('clamp') || text.includes('vise') || text.includes('c-clamp')) {
-    return 'Hardware > Tools > Hand Tools > Clamps & Vises';
+
+  // 8. ONLY True Standalone Batteries & Chargers (NOT bare tools with battery compatibility notes)
+  const isBareTool = text.includes('bare tool') || text.includes('tool only') || text.includes('tool-only') || text.includes('bare-tool');
+  if (!isBareTool && (text.includes('battery pack') || text.includes('starter kit') || text.includes('battery & charger') || text.includes('rapid charger') || text.includes('dual bay charger') || (text.includes('charger') && !text.includes('radio') && !text.includes('vacuum') && !text.includes('light')))) {
+    return 'Hardware > Tools > Tool Accessories > Power Tool Batteries & Chargers';
   }
 
-  // Plumbing / Electrical Specialized
-  if (text.includes('press tool') || text.includes('pipe threader') || text.includes('pex') || text.includes('drain cleaner') || text.includes('pipe cutter') || text.includes('transfer pump')) {
-    return 'Hardware > Tools > Plumbing Tools & Equipment > Pipe Threaders & Press Tools';
-  }
-  if (text.includes('multimeter') || text.includes('clamp meter') || text.includes('voltage detector') || text.includes('cable cutter') || text.includes('fish tape')) {
-    return 'Hardware > Tools > Electrical Tools & Testers > Multimeters & Clamp Meters';
-  }
-  if (text.includes('thermal camera') || text.includes('inspection camera') || text.includes('borescope')) {
-    return 'Hardware > Tools > Inspection & Thermal Imaging Cameras';
-  }
-
-  // Tool Accessories
-  if (text.includes('blade') || text.includes('carbide blade') || text.includes('diamond blade')) {
-    return 'Hardware > Tools > Tool Accessories > Saw Blades';
-  }
-  if (text.includes('drill bit') || text.includes('driver bit') || text.includes('step bit') || text.includes('auger') || text.includes('sds bit')) {
-    return 'Hardware > Tools > Tool Accessories > Drill Bits & Driver Bits';
-  }
-  if (text.includes('abrasive') || text.includes('sanding disc') || text.includes('grinding wheel') || text.includes('flap disc') || text.includes('cutoff wheel')) {
-    return 'Hardware > Tools > Tool Accessories > Abrasives & Sanding Discs';
-  }
-  if (text.includes('hole saw') || text.includes('core bit')) {
-    return 'Hardware > Tools > Tool Accessories > Hole Saws & Core Bits';
-  }
-
-  // General fallback
   return 'Hardware > Tools > Power Tools > Drills & Drivers';
 };
 
