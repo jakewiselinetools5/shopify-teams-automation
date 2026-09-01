@@ -68,13 +68,13 @@ function normalizeAndCanonicalizeUrl(rawUrl) {
     const u = new URL(clean);
     if (u.hostname.includes('shopify.com') || u.pathname.includes('/cdn/shop/')) {
       u.search = '';
-      u.pathname = u.pathname.replace(/_[0-9]+x[0-9]+(?=\.[a-z0-9]+$)/i, '_1200x1200')
-                             .replace(/_(?:small|thumb|compact|medium|large|grande)(?=\.[a-z0-9]+$)/i, '_1200x1200');
+      u.pathname = u.pathname.replace(/_[0-9]+x[0-9]+(?=\.[a-z0-9]+$)/i, '_1024x1024')
+                             .replace(/_(?:small|thumb|compact|medium|large|grande)(?=\.[a-z0-9]+$)/i, '_1024x1024');
     } else if (u.hostname.includes('insitecloud.net') || u.pathname.includes('insitecloud.net')) {
       u.search = '';
       u.pathname = u.pathname.replace(/_(?:sm|md|thumb)(?=\.[a-z0-9]+$)/i, '_lg');
     } else if (u.pathname.includes('/stencil/')) {
-      u.pathname = u.pathname.replace(/\/stencil\/\d+x\d+\//, '/stencil/1280x1280/').replace(/\/stencil\/\d+w\//, '/stencil/1280x1280/');
+      u.pathname = u.pathname.replace(/\/stencil\/\d+x\d+\//, '/stencil/1000x1000/').replace(/\/stencil\/\d+w\//, '/stencil/1000x1000/');
     } else if (u.hostname.includes('olightstore.com') || u.hostname.includes('olightstore.ca')) {
       u.search = '';
       u.pathname = u.pathname.replace(/@.*$/, '');
@@ -91,7 +91,7 @@ function getCanonicalAssetKey(url) {
   try {
     const u = new URL(url);
     let pathname = u.pathname.toLowerCase();
-    pathname = pathname.replace(/_(?:sm|md|lg|thumb|medium|large|small|_1200x1200)(?=\.[a-z0-9]+$)/i, '');
+    pathname = pathname.replace(/_(?:sm|md|lg|thumb|medium|large|small|_1024x1024)(?=\.[a-z0-9]+$)/i, '');
     const filename = pathname.split('/').pop() || '';
     return `${u.hostname}/${filename}`;
   } catch {
@@ -244,14 +244,15 @@ export default async function handler(req, res) {
       const candidateProductUrls = [];
       const lowerBrand = brand.toLowerCase();
 
-      // 1. Direct official manufacturer URLs
+            // 1. Direct official manufacturer URLs (Source of Truth)
       if (lowerBrand.includes('milwaukee')) {
-        candidateProductUrls.push(`https://www.milwaukeetool.com/Products/${cleanMfrSku}`);
         candidateProductUrls.push(`https://www.milwaukeetool.ca/Products/${cleanMfrSku}`);
+        candidateProductUrls.push(`https://www.milwaukeetool.com/Products/${cleanMfrSku}`);
       } else if (lowerBrand.includes('dewalt')) {
-        candidateProductUrls.push(`https://www.dewalt.com/product/${cleanMfrSku.toLowerCase()}`);
         candidateProductUrls.push(`https://www.dewalt.ca/product/${cleanMfrSku.toLowerCase()}`);
+        candidateProductUrls.push(`https://www.dewalt.com/product/${cleanMfrSku.toLowerCase()}`);
       } else if (lowerBrand.includes('makita')) {
+        candidateProductUrls.push(`https://www.makita.ca/index2.php?event=toolsearch&toolno=${encodeURIComponent(cleanMfrSku)}`);
         candidateProductUrls.push(`https://www.makitatools.com/products/details/${cleanMfrSku}`);
       } else if (lowerBrand.includes('stealth')) {
         candidateProductUrls.push(`https://stealthvacs.com/products/${cleanMfrSku.toLowerCase()}`);
@@ -259,14 +260,13 @@ export default async function handler(req, res) {
       } else if (lowerBrand.includes('badger') || lowerBrand.includes('occidental')) {
         candidateProductUrls.push(`https://badgertoolbelts.com/search?q=${encodeURIComponent(cleanMfrSku)}`);
         candidateProductUrls.push(`https://badgertoolbelts.com/products/${cleanMfrSku.toLowerCase()}`);
+        candidateProductUrls.push(`https://occidentalleather.com/search?q=${encodeURIComponent(cleanMfrSku)}`);
         candidateProductUrls.push(`https://squareshardware.ca/search?q=${encodeURIComponent(cleanMfrSku)}`);
         candidateProductUrls.push(`https://www.burnstools.com/catalogsearch/result/?q=${encodeURIComponent(cleanMfrSku)}`);
-        candidateProductUrls.push(`https://www.atlas-machinery.com/search.php?search_query=${encodeURIComponent(cleanMfrSku)}`);
       } else if (lowerBrand.includes('olight')) {
         candidateProductUrls.push(`https://www.olightstore.ca/search?q=${encodeURIComponent(cleanMfrSku)}`);
         candidateProductUrls.push(`https://www.olightstore.com/search?q=${encodeURIComponent(cleanMfrSku)}`);
         candidateProductUrls.push(`https://ca.olight.com/products/${cleanMfrSku.toLowerCase()}`);
-        candidateProductUrls.push(`https://www.olight.com/products/${cleanMfrSku.toLowerCase()}`);
       } else if (lowerBrand.includes('malco')) {
         candidateProductUrls.push(`https://www.malcopro.com/product/${cleanMfrSku.toLowerCase()}`);
       } else if (lowerBrand.includes('knipex')) {
@@ -275,15 +275,27 @@ export default async function handler(req, res) {
         candidateProductUrls.push(`https://www.wihatools.com/products/${cleanMfrSku.toLowerCase()}`);
       } else if (lowerBrand.includes('ox')) {
         candidateProductUrls.push(`https://oxtools.ca/products/${cleanMfrSku.toLowerCase()}`);
+      } else if (lowerBrand.includes('festool')) {
+        candidateProductUrls.push(`https://www.festoolcanada.com/products/search?q=${encodeURIComponent(cleanMfrSku)}`);
+      } else if (lowerBrand.includes('bosch')) {
+        candidateProductUrls.push(`https://www.boschtools.com/us/en/search/?q=${encodeURIComponent(cleanMfrSku)}`);
+      } else if (lowerBrand.includes('stabila')) {
+        candidateProductUrls.push(`https://www.stabila.com/en-US/search.html?q=${encodeURIComponent(cleanMfrSku)}`);
+      } else if (lowerBrand.includes('bessey')) {
+        candidateProductUrls.push(`https://www.besseytools.com/search?q=${encodeURIComponent(cleanMfrSku)}`);
       }
 
-      // 2. Canadian Authorized Industrial Distributors
+            // 2. Canadian Authorized Industrial Distributors & Retail Catalogs
       const cadDistributorUrls = [
         `https://www.mississaugahardware.com/search?q=${encodeURIComponent(cleanMfrSku)}`,
-        `https://thetoolstore.ca/search?type=product&q=${encodeURIComponent(cleanMfrSku)}`,
         `https://www.atlas-machinery.com/search.php?search_query=${encodeURIComponent(cleanMfrSku)}`,
+        `https://www.tegstools.com/search?q=${encodeURIComponent(cleanMfrSku)}`,
+        `https://thetoolstore.ca/search?type=product&q=${encodeURIComponent(cleanMfrSku)}`,
         `https://www.bcfasteners.com/?s=${encodeURIComponent(cleanMfrSku)}&post_type=product`,
-        `https://www.kmstools.com/catalogsearch/result/?q=${encodeURIComponent(cleanMfrSku)}`
+        `https://www.kmstools.com/catalogsearch/result/?q=${encodeURIComponent(cleanMfrSku)}`,
+        `https://www.toolnut.com/search?q=${encodeURIComponent(cleanMfrSku)}`,
+        `https://www.acmetools.com/search?q=${encodeURIComponent(cleanMfrSku)}`,
+        `https://www.homedepot.ca/search?q=${encodeURIComponent(cleanMfrSku)}`
       ];
 
       await Promise.allSettled(cadDistributorUrls.map(async (sUrl) => {

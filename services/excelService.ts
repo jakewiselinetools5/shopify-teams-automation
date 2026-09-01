@@ -171,9 +171,9 @@ export const getImageFingerprint = (url: string): string => {
       }
     }
 
-    // 2. Shopify CDN (e.g. /files/48-22-8424_hero_2048x2048.jpg or /products/48-22-8424_large.png)
+    // 2. Shopify CDN (e.g. /files/48-22-8424_hero_1024x1024.jpg or /products/48-22-8424_large.png)
     if (hostname.includes('shopify') || hostname.includes('cdn.shopify.com')) {
-      // Strip resolution suffixes like _2048x2048, _1024x1024, _grande, _medium, _small, etc.
+      // Strip resolution suffixes like _1024x1024, _1024x1024, _grande, _medium, _small, etc.
       const cleanedShopify = pathname.replace(/_(?:pico|icon|thumb|small|compact|medium|large|grande|\d+x\d*|x\d+)\.(jpg|jpeg|png|webp|gif)$/i, '.$1');
       const filenameMatch = cleanedShopify.match(/\/([^\/?#]+)$/);
       if (filenameMatch) {
@@ -372,7 +372,7 @@ export const upscaleImageUrl = (url: string): string => {
 
     // 2. Shopify CDN
     if (host.includes('cdn.shopify.com') || host.includes('shopify.com')) {
-      upgraded = upgraded.replace(/_(?:pico|icon|thumb|small|compact|medium|large|grande|\d+x\d*|x\d+)\.(jpg|jpeg|png|webp)(\?.*)?$/i, '_2048x2048.$1$2');
+      upgraded = upgraded.replace(/_(?:pico|icon|thumb|small|compact|medium|large|grande|\d+x\d*|x\d+)\.(jpg|jpeg|png|webp)(\?.*)?$/i, '_1024x1024.$1$2');
       return upgraded;
     }
 
@@ -391,22 +391,22 @@ export const upscaleImageUrl = (url: string): string => {
 
     // 5. Cloudinary
     if (host.includes('cloudinary.com') || host.includes('res.cloudinary.com')) {
-      upgraded = upgraded.replace(/\/upload\/(?:[a-z0-9_,:]+\/)?/i, '/upload/q_auto,f_auto,w_2000/');
+      upgraded = upgraded.replace(/\/upload\/(?:[a-z0-9_,:]+\/)?/i, '/upload/w_1000,h_1000,c_limit,q_auto,f_auto/');
       return upgraded;
     }
 
     // 6. Grainger CDN
     if (host.includes('grainger.com')) {
-      upgraded = upgraded.replace(/_(\d{2,3})\.(jpg|jpeg|png)/i, '_2000.$2');
+      upgraded = upgraded.replace(/_(\d{2,3})\.(jpg|jpeg|png)/i, '_1000.$2');
       return upgraded;
     }
 
     // 7. General width/height query params
     if (parsed.searchParams.has('w') || parsed.searchParams.has('h') || parsed.searchParams.has('width') || parsed.searchParams.has('height')) {
-      if (parsed.searchParams.has('w')) parsed.searchParams.set('w', '2000');
-      if (parsed.searchParams.has('h')) parsed.searchParams.set('h', '2000');
-      if (parsed.searchParams.has('width')) parsed.searchParams.set('width', '2000');
-      if (parsed.searchParams.has('height')) parsed.searchParams.set('height', '2000');
+      if (parsed.searchParams.has('w')) parsed.searchParams.set('w', '1000');
+      if (parsed.searchParams.has('h')) parsed.searchParams.set('h', '1000');
+      if (parsed.searchParams.has('width')) parsed.searchParams.set('width', '1000');
+      if (parsed.searchParams.has('height')) parsed.searchParams.set('height', '1000');
       upgraded = parsed.toString();
     }
   } catch (e) {
