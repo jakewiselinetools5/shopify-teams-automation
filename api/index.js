@@ -1,25 +1,73 @@
 import { GoogleGenAI } from '@google/genai';
 
-
 function isImageMatchingSkuModel(imgUrl, brand, sku) {
   const lower = String(imgUrl || '').toLowerCase();
   const lowerSku = String(sku || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const lowerBrand = String(brand || '').toLowerCase();
+  const filename = (lower.split('?')[0].split('/').pop() || '').toLowerCase();
   
-  // Banner and site asset filters
-  if (lower.includes('1920x960') || lower.includes('930x600') || lower.includes('70x30') || 
-      lower.includes('country/') || lower.includes('/flags/') || lower.includes('ca.png') || 
-      lower.includes('banner') || lower.includes('header') || lower.includes('slider')) {
+  // Marketplaces and user-generated photo sites (STRICT BLOCK - ZERO TOLERANCE)
+  if (lower.includes('ebay') || lower.includes('ebayimg') || lower.includes('s-l1600') || lower.includes('s-l500') || lower.includes('s-l300') ||
+      lower.includes('walmart') || lower.includes('craigslist') || lower.includes('mercari') || lower.includes('poshmark') ||
+      lower.includes('offerup') || lower.includes('facebook') || lower.includes('kijiji') || lower.includes('worthpoint') ||
+      lower.includes('picclick') || lower.includes('carousell') || lower.includes('aliexpress') || lower.includes('temu') ||
+      lower.includes('amazon') || lower.includes('media-amazon') || lower.includes('preview.redd.it') || lower.includes('pinimg.com')) {
     return false;
   }
 
-  // Cross-model mismatch filters for Olight
-  if (brand.toLowerCase().includes('olight')) {
+  // Banner, flags, and site asset filters
+  if (lower.includes('1920x960') || lower.includes('930x600') || lower.includes('70x30') || 
+      lower.includes('country/') || lower.includes('/flags/') || lower.includes('ca.png') || 
+      lower.includes('banner') || lower.includes('header') || lower.includes('slider') ||
+      lower.includes('icon') || lower.includes('logo') || lower.includes('watermark')) {
+    return false;
+  }
+
+  // 1. DeWalt strict model isolation (Check FILENAME only, not random UUIDs)
+  if (lowerBrand.includes('dewalt')) {
+    const numMatch = lowerSku.match(/([0-9]{3,4})/);
+    if (numMatch) {
+      const modelNum = numMatch[1];
+      if (!filename.includes(modelNum) && !filename.includes(lowerSku.slice(0, 6))) {
+        return false;
+      }
+    }
+  } 
+  // 2. Milwaukee strict model isolation
+  else if (lowerBrand.includes('milwaukee')) {
+    const numMatch = lowerSku.match(/([0-9]{4})/);
+    if (numMatch) {
+      const modelNum = numMatch[1];
+      if (!filename.includes(modelNum) && !lower.includes('milwaukeetool.com/--/web-images/sc/')) {
+        return false;
+      }
+    }
+  } 
+  // 3. Makita strict model isolation
+  else if (lowerBrand.includes('makita')) {
+    const modelPrefix = lowerSku.slice(0, 5);
+    if (modelPrefix.length >= 4 && !filename.includes(modelPrefix) && !filename.includes(lowerSku)) {
+      return false;
+    }
+  }
+  // 4. Olight strict model isolation
+  else if (lowerBrand.includes('olight')) {
     const olightModels = ['arkpro', 'arkfeld', 'baton', 'seeker', 'warrior', 'perun', 'marauder', 'oclip', 'javelot', 'baldr', 'valkyrie', 'i3t', 'i5t', 'i1r', 'diffuse', 'sphere'];
     const currentModel = olightModels.find(m => lowerSku.includes(m));
     if (currentModel) {
       const otherModels = olightModels.filter(m => m !== currentModel);
-      if (otherModels.some(other => lower.includes(other))) {
-        return false; // Skip images from other models
+      if (otherModels.some(other => filename.includes(other))) {
+        return false;
+      }
+    }
+  }
+  // 5. Badger / Occidental Leather strict model isolation
+  else if (lowerBrand.includes('badger') || lowerBrand.includes('occidental')) {
+    const numMatch = lowerSku.match(/([0-9]{5,6})/);
+    if (numMatch) {
+      const modelNum = numMatch[1];
+      if (!filename.includes(modelNum) && !lower.includes('badgertoolbelts') && !lower.includes('occidentalleather')) {
+        return false;
       }
     }
   }
@@ -64,12 +112,15 @@ const NON_PRODUCT_BLOCKLIST = [
 
 function normalizeAndCanonicalizeUrl(rawUrl) {
   try {
-    let clean = rawUrl.trim().replace(/^http:\/\//i, 'https://');
+    let clean = rawUrl.trim().replace(/^http:\/\//i, 'https://').replace(/\\\//g, '/').replace(/\\"/g, '"');
     const u = new URL(clean);
     if (u.hostname.includes('shopify.com') || u.pathname.includes('/cdn/shop/')) {
       u.search = '';
       u.pathname = u.pathname.replace(/_[0-9]+x[0-9]+(?=\.[a-z0-9]+$)/i, '_1024x1024')
                              .replace(/_(?:small|thumb|compact|medium|large|grande)(?=\.[a-z0-9]+$)/i, '_1024x1024');
+    } else if (u.hostname.includes('dewalt.com') || u.hostname.includes('dewalt.ca')) {
+      u.search = '';
+      u.pathname = u.pathname.replace(/_(?:320|640|160)\.webp$/i, '_1280.webp');
     } else if (u.hostname.includes('insitecloud.net') || u.pathname.includes('insitecloud.net')) {
       u.search = '';
       u.pathname = u.pathname.replace(/_(?:sm|md|thumb)(?=\.[a-z0-9]+$)/i, '_lg');
@@ -78,8 +129,6 @@ function normalizeAndCanonicalizeUrl(rawUrl) {
     } else if (u.hostname.includes('olightstore.com') || u.hostname.includes('olightstore.ca')) {
       u.search = '';
       u.pathname = u.pathname.replace(/@.*$/, '');
-    } else {
-      u.search = '';
     }
     return u.toString();
   } catch {
@@ -99,11 +148,6 @@ function getCanonicalAssetKey(url) {
   }
 }
 
-
-function getMatchingTaxonomyRules(brand, sku) { return ""; }
-
-const TOOL_TAXONOMY_RULES = "";
-
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -118,148 +162,18 @@ export default async function handler(req, res) {
   const parsedUrl = new URL(req.url, `https://${req.headers.host || 'localhost'}`);
   const { pathname } = parsedUrl;
 
-  if (pathname === '/api/health') {
-    
-      if (parsedData) {
-        // Deterministic Title & Identity Guardrail: Manufacturer H1 is ground truth
-        if (officialMfrTitle && officialMfrTitle.length > 3) {
-          const lowerParsed = (parsedData.title || '').toLowerCase();
-          const lowerMfr = officialMfrTitle.toLowerCase();
-          
-          // If official manufacturer title is a vacuum and AI drifted into radio/other
-          if (lowerMfr.includes('vacuum') && !lowerParsed.includes('vacuum') && !lowerParsed.includes('vac')) {
-            parsedData.title = `${brand} ${sku} ${officialMfrTitle}`;
-            parsedData.product_type = 'Handheld Vacuums';
-            parsedData.google_category = 'Hardware > Tools > Power Tools > Dust Extractors & Wet/Dry Vacuums';
-          } else if (lowerMfr.includes('impact wrench') && !lowerParsed.includes('impact wrench')) {
-            parsedData.title = `${brand} ${sku} ${officialMfrTitle}`;
-            parsedData.product_type = 'Impact Wrenches';
-            parsedData.google_category = 'Hardware > Tools > Power Tools > Impact Drivers & Wrenches';
-          } else if (lowerMfr.includes('pliers') && !lowerParsed.includes('plier')) {
-            parsedData.title = `${brand} ${sku} ${officialMfrTitle}`;
-            parsedData.product_type = 'Pliers';
-            parsedData.google_category = 'Hardware > Tools > Hand Tools > Pliers & Cutters';
-          }
-        }
-      }
-
-      return res.status(200).json({ status: 'ok', serverTime: new Date().toISOString() });
-  }
-
-  if (pathname === '/api/media/proxy') {
-    try {
-      const targetUrl = parsedUrl.searchParams.get('url');
-      if (!targetUrl || !targetUrl.startsWith('http')) {
-        return res.status(400).json({ error: 'Missing or invalid url parameter' });
-      }
-
-      const imgRes = await fetch(targetUrl, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-          'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
-          'Referer': new URL(targetUrl).origin
-        },
-        signal: AbortSignal.timeout(6000)
-      });
-
-      if (!imgRes.ok) {
-        return res.status(imgRes.status).send(`Proxy fetch failed: ${imgRes.statusText}`);
-      }
-
-      const contentType = imgRes.headers.get('content-type') || 'image/jpeg';
-      res.setHeader('Content-Type', contentType);
-      res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=86400');
-      
-      const buffer = Buffer.from(await imgRes.arrayBuffer());
-      return res.status(200).send(buffer);
-    } catch (err) {
-      return res.status(500).json({ error: err.message });
-    }
-  }
-
-  if (pathname === '/api/media/scrape' && req.method === 'POST') {
-    try {
-      const payload = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
-      const brand = String(payload.brand || '').trim();
-      const sku = String(payload.sku || '').trim();
-      const candidateUrls = Array.isArray(payload.candidateUrls) ? payload.candidateUrls : [];
-
-      const validImages = [];
-      const seenAssetKeys = new Set();
-      const cleanMfrSku = sku.replace(/^[A-Z]{2,4}-/i, '');
-      const baseNumbers = cleanMfrSku.replace(/[^0-9]/g, '').slice(0, 4);
-
-      const addValidImage = (url) => {
-        const canonical = normalizeAndCanonicalizeUrl(url);
-        const assetKey = getCanonicalAssetKey(canonical);
-        if (seenAssetKeys.has(assetKey)) return;
-        seenAssetKeys.add(assetKey);
-        validImages.push(canonical);
-      };
-
-      for (const cand of candidateUrls) {
-        if (cand && typeof cand === 'string' && cand.startsWith('http')) {
-          const lower = cand.toLowerCase();
-          if (!NON_PRODUCT_BLOCKLIST.some(k => lower.includes(k)) && isImageMatchingSkuModel(imgUrl, brand, sku)) {
-            addValidImage(cand);
-          }
-        }
-      }
-
-      const WRONG_KIT_TERMS = [
-        'combi-drill', 'hammer-bare', 'dcd996', 'dch273', 'tstak', 'dck299', 'dck590',
-        'dck694', 'dcd791', 'dcd796', 'dcd998', 'dcf887', 'dcf850', 'circular-saw', 'reciprocating-saw',
-        'p2t', '-gb', '-qw', '-xe', 'akcdn.net', 'dewaltvietnam', 'autozone', 'bitsdrill', 'toolsgiant'
-      ];
-
-      if (validImages.length < 8) {
-        try {
-          const bQueries = [
-            `"${brand}" "${sku}"`,
-            `"${brand}" "${cleanMfrSku}"`,
-            `"${sku}"`
-          ].filter(Boolean);
-
-          for (const query of bQueries) {
-            const bingUrl = `https://www.bing.com/images/async?q=${encodeURIComponent(query)}&first=0&count=18&mmasync=1`;
-            const bingRes = await fetch(bingUrl, {
-              headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
-              signal: AbortSignal.timeout(2500)
-            });
-            if (bingRes.ok) {
-              const bingHtml = await bingRes.text();
-              const matches = bingHtml.match(/murl&quot;:&quot;([^&"]+)/gi) || [];
-              for (const m of matches.slice(0, 18)) {
-                let imgUrl = m.replace(/murl&quot;:&quot;/i, '').replace(/\\\//g, '/').trim();
-                if (imgUrl.match(/\.(jpg|jpeg|png|webp)($|\?)/i) && !imgUrl.includes('bing.com') && !imgUrl.includes('microsoft.com')) {
-                  const lower = imgUrl.toLowerCase();
-                  if (WRONG_KIT_TERMS.some(term => lower.includes(term))) continue;
-                  if (cleanMfrSku.toUpperCase().endsWith('P1') && (lower.includes('p2') || lower.includes('p2t'))) continue;
-                  if (!lower.includes('logo') && !lower.includes('icon') && !lower.includes('banner') && !NON_PRODUCT_BLOCKLIST.some(k => lower.includes(k))) {
-                    addValidImage(imgUrl);
-                  }
-                }
-              }
-            }
-            if (validImages.length >= 6) break;
-          }
-        } catch (e) {}
-      }
-
-      return res.status(200).json({ success: true, images: validImages });
-    } catch (err) {
-      return res.status(500).json({ error: err.message });
-    }
-  }
-
   if (pathname === '/api/ai/synthesize' && req.method === 'POST') {
     try {
-      const payload = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
-      const brand = String(payload.brand || '').trim();
-      const sku = String(payload.sku || '').trim();
-      const systemTitleHint = String(payload.systemTitleHint || '').trim();
-
       const apiKey = (process.env.GEMINI_API_KEY || process.env.API_KEY || '').trim();
+      let bodyData = req.body;
+      if (typeof bodyData === 'string') {
+        try { bodyData = JSON.parse(bodyData); } catch (e) {}
+      }
+
+      const { brand = '', sku = '', systemTitleHint = '', existingContext = {} } = bodyData || {};
+      if (!brand && !sku) {
+        return res.status(400).json({ error: 'Brand and SKU are required' });
+      }
 
       const cleanMfrSku = sku.replace(/^[A-Z]{2,4}-/i, '');
       let crawledEvidence = '';
@@ -268,16 +182,29 @@ export default async function handler(req, res) {
       const candidateProductUrls = [];
       const lowerBrand = brand.toLowerCase();
 
-            // 1. Direct official manufacturer URLs (Source of Truth)
-      if (lowerBrand.includes('milwaukee')) {
+      // 1. Direct official manufacturer URLs & High-Res Studio CDNs
+      if (lowerBrand.includes('dewalt')) {
+        const dSku = cleanMfrSku.toUpperCase();
+        candidateProductUrls.push(`https://www.dewalt.com/product/${cleanMfrSku.toLowerCase()}`);
+        candidateProductUrls.push(`https://www.dewalt.ca/product/${cleanMfrSku.toLowerCase()}`);
+        candidateProductUrls.push(`https://www.dewalt.com/en-us/search?search=${encodeURIComponent(cleanMfrSku)}`);
+        candidateProductUrls.push(`https://www.dewalt.ca/en-ca/search?search=${encodeURIComponent(cleanMfrSku)}`);
+        
+        discoveredImages.push(`https://assets.dewalt.com/NAG/PRODUCT/IMAGES/HIRES/WHITEBG/${dSku}_1_1280.webp`);
+        discoveredImages.push(`https://assets.dewalt.com/NAG/PRODUCT/IMAGES/HIRES/WHITEBG/${dSku}_2_1280.webp`);
+        discoveredImages.push(`https://assets.dewalt.com/NAG/PRODUCT/IMAGES/HIRES/WHITEBG/${dSku}_3_1280.webp`);
+        discoveredImages.push(`https://assets.dewalt.com/NAG/PRODUCT/IMAGES/HIRES/WHITEBG/${dSku}_4_1280.webp`);
+        discoveredImages.push(`https://assets.dewalt.com/NAG/PRODUCT/IMAGES/HIRES/WHITEBG/${dSku}_A1_1280.webp`);
+        discoveredImages.push(`https://assets.dewalt.ca/NAG/PRODUCT/IMAGES/HIRES/WHITEBG/${dSku}_1_1280.webp`);
+      } else if (lowerBrand.includes('milwaukee')) {
         candidateProductUrls.push(`https://www.milwaukeetool.ca/Products/${cleanMfrSku}`);
         candidateProductUrls.push(`https://www.milwaukeetool.com/Products/${cleanMfrSku}`);
-      } else if (lowerBrand.includes('dewalt')) {
-        candidateProductUrls.push(`https://www.dewalt.ca/product/${cleanMfrSku.toLowerCase()}`);
-        candidateProductUrls.push(`https://www.dewalt.com/product/${cleanMfrSku.toLowerCase()}`);
+        discoveredImages.push(`https://milwaukeetool.scene7.com/is/image/MilwaukeeTool/${cleanMfrSku}?wid=1000&hei=1000&fit=fit&qlt=85,0&resMode=sharp2`);
+        discoveredImages.push(`https://milwaukeetool.scene7.com/is/image/MilwaukeeTool/${cleanMfrSku}_1?wid=1000&hei=1000&fit=fit&qlt=85,0&resMode=sharp2`);
       } else if (lowerBrand.includes('makita')) {
         candidateProductUrls.push(`https://www.makita.ca/index2.php?event=toolsearch&toolno=${encodeURIComponent(cleanMfrSku)}`);
         candidateProductUrls.push(`https://www.makitatools.com/products/details/${cleanMfrSku}`);
+        discoveredImages.push(`https://dtis8tdmkp4fg.cloudfront.net/products/cordless/xgt-40v-80v-max/drills-fastening/impact-wrenches/${cleanMfrSku.toLowerCase()}/${cleanMfrSku.toLowerCase()}-001.jpg`);
       } else if (lowerBrand.includes('stealth')) {
         candidateProductUrls.push(`https://stealthvacs.com/products/${cleanMfrSku.toLowerCase()}`);
         candidateProductUrls.push(`https://www.stealthvacs.com/products/${sku.toLowerCase()}`);
@@ -309,7 +236,7 @@ export default async function handler(req, res) {
         candidateProductUrls.push(`https://www.besseytools.com/search?q=${encodeURIComponent(cleanMfrSku)}`);
       }
 
-            // 2. Canadian Authorized Industrial Distributors & Retail Catalogs
+      // 2. Canadian Authorized Industrial Distributors & Retail Catalogs
       const cadDistributorUrls = [
         `https://www.mississaugahardware.com/search?q=${encodeURIComponent(cleanMfrSku)}`,
         `https://www.atlas-machinery.com/search.php?search_query=${encodeURIComponent(cleanMfrSku)}`,
@@ -329,7 +256,8 @@ export default async function handler(req, res) {
             signal: AbortSignal.timeout(3000)
           });
           if (crawlRes.ok) {
-            const html = await crawlRes.text();
+            let html = await crawlRes.text();
+            html = html.replace(/\\\//g, '/').replace(/\\"/g, '"');
             const origin = new URL(sUrl).origin;
             const linkRegex = new RegExp(`href=["']((?:https?://[^"']*|/[^"']*)products?/[^"']*${cleanMfrSku.slice(0, 6)}[^"']*)["']`, 'gi');
             let m;
@@ -342,7 +270,7 @@ export default async function handler(req, res) {
         } catch (e) {}
       }));
 
-      // 3. Multi-Query Deep Web Search (Canada, UPC, Specs, Pricing)
+      // 3. Multi-Query Deep Web Search
       try {
         const ddgQueries = [
           `"${brand}" "${sku}" Canada`,
@@ -367,7 +295,7 @@ export default async function handler(req, res) {
                 if (sn.length > 20) {
                   crawledSourceUrls.push(u);
                   crawledEvidence += `\n\n[Search Match: ${u}]\n${sn}`;
-                  if (!u.includes('youtube.com') && !u.includes('wikipedia.org') && !u.includes('ebay.') && candidateProductUrls.length < 15) {
+                  if (!u.includes('youtube.com') && !u.includes('wikipedia.org') && !u.includes('ebay.') && !u.includes('walmart.') && candidateProductUrls.length < 15) {
                     candidateProductUrls.push(u);
                   }
                 }
@@ -391,84 +319,31 @@ export default async function handler(req, res) {
               signal: AbortSignal.timeout(2500)
             });
             if (pRes.ok) {
-              const pHtml = await pRes.text();
+              let pHtml = await pRes.text();
+              pHtml = pHtml.replace(/\\\//g, '/').replace(/\\"/g, '"');
               const isMfrDomain = pUrl.includes('milwaukeetool.') || pUrl.includes('dewalt.') || pUrl.includes('makitatools.') || pUrl.includes('stealthvacs.') || pUrl.includes('malcopro.') || pUrl.includes('knipex.') || pUrl.includes('wihatools.') || pUrl.includes('oxtools.') || pUrl.includes('badgertoolbelts.') || pUrl.includes('occidentalleather.');
 
               if (isMfrDomain && !officialMfrTitle) {
                 const h1Match = pHtml.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
-                const ogTitleMatch = pHtml.match(/<meta[^>]*property=["']og:title["'][^>]*content=["']([^"']+)["']/i);
-                let cand = (h1Match ? h1Match[1].replace(/<[^>]+>/g, '').trim() : '') || (ogTitleMatch ? ogTitleMatch[1].replace(/\|.*$/g, '').trim() : '');
-                cand = cand.replace(/^NEXUS™\s*/i, '').trim();
-                if (cand && cand.length > 3 && !cand.toLowerCase().includes('page not found') && !cand.toLowerCase().includes('404')) {
-                  officialMfrTitle = cand;
+                if (h1Match) {
+                  officialMfrTitle = h1Match[1].replace(/<[^>]+>/g, '').trim();
                   officialMfrSource = pUrl;
                 }
               }
 
-              // Extract direct manufacturer images
-              if (lowerBrand.includes('milwaukee')) {
-                const mkeImgs = pHtml.match(/https:\/\/www\.milwaukeetool\.com\/--\/web-images\/sc\/[a-f0-9]+(?:\?hash=[a-f0-9]+)?/gi) || [];
-                for (const mImg of mkeImgs) {
-                  const canonical = normalizeAndCanonicalizeUrl(mImg);
+              // Extract images from crawled product pages
+              const pageImgRegex = /https?:\/\/[^"'\s\\]+\.(?:jpg|jpeg|png|webp)(?:\?[^"'\s\\]*)?/gi;
+              let im;
+              while ((im = pageImgRegex.exec(pHtml)) !== null) {
+                let imgCandidate = im[0].replace(/[,\\]+$/, '').trim();
+                const lower = imgCandidate.toLowerCase();
+                if (!NON_PRODUCT_BLOCKLIST.some(k => lower.includes(k)) && isImageMatchingSkuModel(imgCandidate, brand, sku)) {
+                  const canonical = normalizeAndCanonicalizeUrl(imgCandidate);
                   const key = getCanonicalAssetKey(canonical);
                   if (!seenAssetKeys.has(key)) {
                     seenAssetKeys.add(key);
-                    mfrStudioImages.push(canonical);
-                  }
-                }
-              } else if (lowerBrand.includes('badger') || lowerBrand.includes('occidental')) {
-                const bgMatches = pHtml.match(/https?:\/\/[^"']+\.(?:jpg|jpeg|png|webp)/gi) || [];
-                for (const bImg of bgMatches) {
-                  const lower = bImg.toLowerCase();
-                  if (cleanMfrSku.includes('461055') && (lower.includes('grey') || lower.includes('gunmetal') || lower.includes('coyote') || lower.includes('sage') || lower.includes('461010') || lower.includes('461030'))) continue;
-                  if (cleanMfrSku.includes('461010') && (lower.includes('olive') || lower.includes('coyote') || lower.includes('sage') || lower.includes('461055') || lower.includes('461030'))) continue;
-                  if (
-                    (lower.includes('461055') || lower.includes('461010') || lower.includes('461030') || lower.includes('462055') || lower.includes('badger') || lower.includes('stencil/1280x1280') || lower.includes('catalog/product')) &&
-                    !NON_PRODUCT_BLOCKLIST.some(k => lower.includes(k))
-                  ) {
-                    const canonical = normalizeAndCanonicalizeUrl(bImg);
-                    const key = getCanonicalAssetKey(canonical);
-                    if (!seenAssetKeys.has(key)) {
-                      seenAssetKeys.add(key);
-                      mfrStudioImages.push(canonical);
-                    }
-                  }
-                }
-              } else if (lowerBrand.includes('olight')) {
-                const olMatches = pHtml.match(/https?:\/\/[^"']+\.(?:jpg|jpeg|png|webp)/gi) || [];
-                for (const oImg of olMatches) {
-                  const lower = oImg.toLowerCase();
-                  
-                  
-                  
-                  if (
-                    !lower.includes("logo") &&
-                    !NON_PRODUCT_BLOCKLIST.some(k => lower.includes(k)) &&
-                    isImageMatchingSkuModel(oImg, brand, sku)
-                  ) {
-                    const canonical = normalizeAndCanonicalizeUrl(oImg);
-                    const key = getCanonicalAssetKey(canonical);
-                    if (!seenAssetKeys.has(key)) {
-                      seenAssetKeys.add(key);
-                      mfrStudioImages.push(canonical);
-                    }
-                  }
-                }
-              }
-
-              const ogMatch = pHtml.match(/<meta[^>]*property=["']og:image["'][^>]*content=["']([^"']+)["']/i) ||
-                              pHtml.match(/<meta[^>]*content=["']([^"']+)["'][^>]*property=["']og:image["']/i);
-              if (ogMatch && ogMatch[1]) {
-                let ogUrl = ogMatch[1];
-                if (ogUrl.startsWith('//')) ogUrl = 'https:' + ogUrl;
-                else if (ogUrl.startsWith('/')) ogUrl = new URL(pUrl).origin + ogUrl;
-                const ogLower = ogUrl.toLowerCase();
-                if (!NON_PRODUCT_BLOCKLIST.some(k => ogLower.includes(k)) && isImageMatchingSkuModel(ogUrl, brand, sku)) {
-                  const canonical = normalizeAndCanonicalizeUrl(ogUrl);
-                  const key = getCanonicalAssetKey(canonical);
-                  if (!seenAssetKeys.has(key)) {
-                    seenAssetKeys.add(key);
-                    mfrStudioImages.push(canonical);
+                    if (isMfrDomain) mfrStudioImages.push(canonical);
+                    else secondaryImages.push(canonical);
                   }
                 }
               }
@@ -485,40 +360,6 @@ export default async function handler(req, res) {
         }));
       }
 
-      // Universal Direct Exact-Image Search with tool context
-      if (mfrStudioImages.length + secondaryImages.length < 4) {
-        try {
-          const bQueries = [
-            `"${brand}" "${sku}"`.trim(),
-            `"${brand}" "${cleanMfrSku}"`.trim(),
-            `"${cleanMfrSku}"`.trim()
-          ];
-          for (const bq of bQueries) {
-            const bUrl = `https://www.bing.com/images/async?q=${encodeURIComponent(bq)}&first=0&count=15&mmasync=1`;
-            const bRes = await fetch(bUrl, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }, signal: AbortSignal.timeout(2000) });
-            if (bRes.ok) {
-              const bHtml = await bRes.text();
-              const matches = bHtml.match(/murl&quot;:&quot;([^&"]+)/gi) || [];
-              for (const m of matches.slice(0, 10)) {
-                let imgUrl = m.replace(/murl&quot;:&quot;/i, '').replace(/\\\//g, '/').trim();
-                if (imgUrl.match(/\.(jpg|jpeg|png|webp)($|\?)/i) && !imgUrl.includes('bing.com') && !imgUrl.includes('microsoft.com')) {
-                  const lower = imgUrl.toLowerCase();
-                  if (!NON_PRODUCT_BLOCKLIST.some(k => lower.includes(k)) && isImageMatchingSkuModel(imgUrl, brand, sku)) {
-                    const canonical = normalizeAndCanonicalizeUrl(imgUrl);
-                    const assetKey = getCanonicalAssetKey(canonical);
-                    if (!seenAssetKeys.has(assetKey)) {
-                      seenAssetKeys.add(assetKey);
-                      secondaryImages.push(canonical);
-                    }
-                  }
-                }
-              }
-            }
-            if (mfrStudioImages.length + secondaryImages.length >= 8) break;
-          }
-        } catch (e) {}
-      }
-
       discoveredImages.push(...mfrStudioImages, ...secondaryImages);
 
       // Extract candidate UPCs and Canadian CAD Prices
@@ -528,43 +369,42 @@ export default async function handler(req, res) {
       const prompt = `Act as the Master Industrial Tool Data Architect for Professional Trades & Shopify Catalog Specialist.
 You must synthesize complete, authoritative, 100% accurate Shopify product catalog data for: "${brand} ${sku}".
 
-${getMatchingTaxonomyRules(brand, sku)}
+SOURCE TRUTH HIERARCHY:
+1. OFFICIAL MANUFACTURER PORTAL (dewalt.ca, milwaukeetool.ca, makitatools.com, etc.): Primary ground truth for exact product title, engineered specifications, included items, and core feature benefits.
+2. CANADIAN INDUSTRIAL DISTRIBUTORS (Atlas Machinery, Mississauga Hardware, Tegs Tools, KMS Tools, BC Fasteners, The Tool Store, Home Depot Canada): Source for Canadian CAD pricing (MSRP), trade categorization, and verified GTIN/UPC barcodes.
 
-${officialMfrTitle ? `VERIFIED OFFICIAL LIVE MANUFACTURER PRODUCT PAGE:\nOfficial Product Name: "${officialMfrTitle}" (Source: ${officialMfrSource})\nCRITICAL MANDATE: The manufacturer's official website confirms this item is strictly "${officialMfrTitle}". Base the item identity, title, specifications, and features 100% on this exact product. Never confuse it with a different capacity tank or complete kit.` : ''}
+${officialMfrTitle ? `VERIFIED OFFICIAL LIVE MANUFACTURER PRODUCT PAGE:\nOfficial Product Name: "${officialMfrTitle}" (Source: ${officialMfrSource})\nCRITICAL MANDATE: The manufacturer's official website confirms this item is strictly "${officialMfrTitle}". Base the item identity, title, specifications, and features 100% on this exact product.` : ''}
 
-${systemTitleHint ? `VERIFIED ENTERPRISE ERP / EBMS ITEM DESCRIPTION:\n"${systemTitleHint}"\nCRITICAL DIRECTIVE: The user's internal enterprise inventory system identifies this item as: "${systemTitleHint}". This is the ground-truth definition of this part.` : ''}
+${systemTitleHint ? `VERIFIED ENTERPRISE ERP / EBMS ITEM DESCRIPTION:\n"${systemTitleHint}"` : ''}
 
-${detectedUpcs.length > 0 ? `DETECTED OFFICIAL UPC / GTIN CANDIDATES IN CRAWL:\n${detectedUpcs.join(', ')}\nOutput strictly the matching valid 12-digit UPC for this SKU.` : 'NO VERIFIED UPC FOUND IN CRAWLED DATA: You must set "barcode": "" (empty string). NEVER fabricate or invent a UPC.'}
+${detectedUpcs.length > 0 ? `DETECTED OFFICIAL UPC / GTIN CANDIDATES IN CRAWL:\n${detectedUpcs.join(', ')}\nOutput strictly the matching valid 12-digit UPC for this SKU.` : 'NO VERIFIED UPC FOUND IN CRAWLED DATA: Set "barcode": "" (empty string). NEVER fabricate a UPC.'}
 
 ${detectedPrices.length > 0 ? `DETECTED CANADIAN COMPETITOR PRICING (CAD):\n${detectedPrices.join(', ')}` : ''}
 
 LIVE CRAWLED DISTRIBUTOR & SEARCH EVIDENCE:
 ${crawledEvidence ? crawledEvidence.slice(0, 9000) : 'Base synthesis on verified manufacturer catalog standards for this exact brand and SKU.'}
 
-INSTRUCTIONS FOR CATALOG EXCELLENCE (AI STUDIO GOLD STANDARD):
+INSTRUCTIONS FOR CATALOG EXCELLENCE:
 1. TITLE:
    - Format: "[Brand] [SKU] [Exact Model / Product Name] - [Color if applicable] - [Size / Key Specs]"
    - Examples:
-     * "Badger Tool Belts 461055-LG Carpenter Tool Belt Set - Olive Drab - Large"
-     * "Milwaukee 49-66-6801 SHOCKWAVE Impact Duty 3/8" Drive Metric Deep Well PACKOUT Socket Set - 19 Piece"
-     * "Milwaukee 0931-20 6.5 Peak HP Wet/Dry Vacuum Motor Head"
-     * "Stealth ST08-2502 2-1/2" x 20" Universal Wet/Dry Vacuum Extension Wand"
-   - Never truncate, abbreviate, or hallucinate different colors, specs, or tools.
+     * "DeWalt DCF850B ATOMIC 20V MAX 1/4 in. 3-Speed Brushless Impact Driver - Tool Only"
+     * "Milwaukee 0892-20 M18 Brushless Handheld Vacuum - Tool Only"
+     * "Makita TW002GZ 40V Max XGT Brushless 1/2 in. Impact Wrench - Tool Only"
 
 2. BODY (HTML):
-   - Overview: 1-2 punchy, professional trade sentences. NO fluff, NO promotional dealer intros.
-   - Features: "<h3>Key Features</h3><ul>" with 4-6 distinct bullet points formatted as "<li><strong>Feature Title:</strong> Detailed trade benefit</li>". (Never duplicate bullet points inside the overview).
-   - Specifications: "<h3>Specifications</h3><table style='width: 100%; border-collapse: collapse; margin-top: 10px;'><tbody>" with alternating row background styling listing all physical & technical specs (Material, Color, Waist Size, Buckle Type, Pockets, Weight, Country of Origin, etc.).
-   - Includes: "<h3>What's Included</h3>" detailing exact package contents.
+   - Overview: 2-3 detailed, high-impact technical sentences explaining the engineered design, brushless motor efficiency, compact dimensions, and professional trade applications.
+   - Features: "<h3>Key Features</h3><ul>" with 5-7 distinct bullet points formatted as "<li><strong>Feature Title:</strong> Detailed trade benefit and technical description</li>".
+   - Specifications: "<h3>Specifications</h3><table style='width: 100%; border-collapse: collapse; margin-top: 10px;'><tbody>" with alternating row background styling listing all physical & technical specs (Voltage, Chuck/Drive Size, Max Torque in in-lbs & Nm, Max RPM, Impacts Per Minute (IPM), Length, Weight, Motor Type, LED Work Lights, Country of Origin, etc.).
+   - Includes: "<h3>What's Included</h3><ul>" detailing exact package contents (e.g. Bare Tool, Belt Hook, Manual).
    - Warranty: "<h3>Manufacturer Warranty</h3>" stating the exact official manufacturer warranty.
 
 3. ACCURACY, PRICING, ZERO-HALLUCINATION BARCODE & SEO:
-   - Provide realistic Canadian Market MSRP in CAD dollars.
-   - Barcode: Provide strictly the verified numeric UPC from crawled data. IF NO VERIFIED UPC EXISTS, OUTPUT AN EMPTY STRING "". NEVER GUESS OR INVENT A UPC CODE.
-   - SEO Title: Clean SEO meta title (max 60 characters): "[Brand] [SKU] [Clean Title] | Wise Line Tools Canada"
-   - SEO Description: Clean, keyword-dense SEO meta description (145-160 characters) highlighting authorized Canadian distributor, genuine manufacturer warranty, and trade specs.
-   - Correct standard Shopify taxonomy category (e.g., "Hardware > Tool Belts & Holders").
-   - Trade-accurate Product Type (e.g., "Tool Belt Sets", "Impact Socket Sets") and rich search tags.
+   - Realistic Canadian Market MSRP in CAD dollars.
+   - Barcode: Provide strictly the verified numeric UPC from crawled data. IF NO VERIFIED UPC EXISTS, OUTPUT AN EMPTY STRING "". NEVER GUESS A UPC.
+   - SEO Title: "[Brand] [SKU] [Clean Title] | Wise Line Tools Canada"
+   - SEO Description: Keyword-dense meta description (145-160 characters) highlighting authorized Canadian distributor, genuine manufacturer warranty, and trade specs.
+   - Standard Shopify taxonomy category and trade-accurate Product Type.
 
 OUTPUT STRICTLY A VALID JSON OBJECT:
 {
@@ -604,10 +444,56 @@ OUTPUT STRICTLY A VALID JSON OBJECT:
         }
       }
 
+      if (parsedData) {
+        if (officialMfrTitle && officialMfrTitle.length > 3) {
+          const lowerParsed = (parsedData.title || '').toLowerCase();
+          const lowerMfr = officialMfrTitle.toLowerCase();
+          if (lowerMfr.includes('vacuum') && !lowerParsed.includes('vacuum') && !lowerParsed.includes('vac')) {
+            parsedData.title = `${brand} ${sku} ${officialMfrTitle}`;
+            parsedData.product_type = 'Handheld Vacuums';
+            parsedData.google_category = 'Hardware > Tools > Power Tools > Dust Extractors & Wet/Dry Vacuums';
+          } else if (lowerMfr.includes('impact driver') && !lowerParsed.includes('impact driver')) {
+            parsedData.title = `${brand} ${sku} ${officialMfrTitle}`;
+            parsedData.product_type = 'Impact Drivers';
+            parsedData.google_category = 'Hardware > Tools > Power Tools > Impact Drivers & Wrenches';
+          }
+        }
+      }
+
+      // Pre-validate all candidate images with parallel HTTP GET/HEAD verification
+      const rawCandidateImages = Array.from(new Set(discoveredImages))
+        .filter(url => isImageMatchingSkuModel(url, brand, sku));
+
+      const validatedCleanImages = [];
+      await Promise.allSettled(rawCandidateImages.slice(0, 25).map(async (imgUrl) => {
+        try {
+          const checkRes = await fetch(imgUrl, {
+            method: 'GET',
+            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
+            signal: AbortSignal.timeout(1800)
+          });
+          if (checkRes.ok) {
+            const cType = checkRes.headers.get('content-type') || '';
+            if (cType.includes('image') || cType.includes('application/octet-stream') || checkRes.status === 200) {
+              validatedCleanImages.push(imgUrl);
+            }
+          }
+        } catch (e) {}
+      }));
+
+      // Sort images: official white-background studio images first, then distributor gallery
+      validatedCleanImages.sort((a, b) => {
+        const aHero = a.includes('assets.dewalt') || a.includes('milwaukeetool') || a.includes('_1_1280') || a.includes('_1.jpg') || a.includes('001.jpg');
+        const bHero = b.includes('assets.dewalt') || b.includes('milwaukeetool') || b.includes('_1_1280') || b.includes('_1.jpg') || b.includes('001.jpg');
+        if (aHero && !bHero) return -1;
+        if (!aHero && bHero) return 1;
+        return 0;
+      });
+
       return res.status(200).json({
         success: true,
         data: parsedData,
-        images: discoveredImages
+        images: validatedCleanImages.slice(0, 16)
       });
     } catch (err) {
       return res.status(500).json({ error: err.message || 'Synthesis failed' });
@@ -637,9 +523,9 @@ OUTPUT STRICTLY A VALID JSON OBJECT:
       const data = await shopifyRes.json();
       return res.status(shopifyRes.status).json(data);
     } catch (err) {
-      return res.status(500).json({ errors: [{ message: err.message || 'Shopify proxy error' }] });
+      return res.status(500).json({ error: err.message || 'GraphQL Proxy Failed' });
     }
   }
 
-  return res.status(404).json({ error: 'Endpoint not found' });
+  return res.status(404).json({ error: 'Endpoint Not Found' });
 }
