@@ -76,12 +76,12 @@ function isImageMatchingSkuModel(imgUrl, brand, sku) {
     }
   }
 
-    // 6. King Canada strict model isolation
+        // 6. King Canada strict model isolation
   else if (lowerBrand.includes('king')) {
     const cleanDigits = lowerSku.replace(/[^a-z0-9]/g, '');
-    const numMatch = lowerSku.match(/([0-9]{3,5})/);
-    const target = numMatch ? numMatch[1] : cleanDigits;
-    if (!filename.includes(target) && !filename.includes(cleanDigits) && !lower.includes('kingcanada')) {
+    const numMatch = lowerSku.match(/([0-9]{2,5}[a-z]{0,3})/i);
+    const target = numMatch ? numMatch[1].toLowerCase() : cleanDigits;
+    if (!filename.includes(target) && !filename.includes(cleanDigits) && !lower.includes(target) && !lower.includes(cleanDigits)) {
       return false;
     }
   }
@@ -195,7 +195,7 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'Brand and SKU are required' });
       }
 
-      const cleanMfrSku = sku.replace(/^[A-Z]{2,4}-/i, '');
+      const cleanMfrSku = sku.replace(/^WLT[-_]/i, '').trim();
       let crawledEvidence = '';
       const crawledSourceUrls = [];
       const discoveredImages = [];
