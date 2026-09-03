@@ -76,6 +76,16 @@ function isImageMatchingSkuModel(imgUrl, brand, sku) {
     }
   }
 
+    // 6. King Canada strict model isolation
+  else if (lowerBrand.includes('king')) {
+    const cleanDigits = lowerSku.replace(/[^a-z0-9]/g, '');
+    const numMatch = lowerSku.match(/([0-9]{3,5})/);
+    const target = numMatch ? numMatch[1] : cleanDigits;
+    if (!filename.includes(target) && !filename.includes(cleanDigits) && !lower.includes('kingcanada')) {
+      return false;
+    }
+  }
+
   return true;
 }
 
@@ -290,12 +300,12 @@ export default async function handler(req, res) {
         } catch (e) {}
       }));
 
-      // 3. Multi-Query Deep Web Search
+            // 3. Multi-Query Deep Web Search
       try {
         const ddgQueries = [
           `"${brand}" "${sku}" Canada`,
           `"${cleanMfrSku}" "UPC"`,
-          `"${sku}" specifications price CAD`
+          `"${brand}" "${cleanMfrSku}" ${systemTitleHint ? `"${systemTitleHint}"` : 'specifications price CAD'}`.trim()
         ];
         await Promise.allSettled(ddgQueries.map(async (dq) => {
           try {
@@ -391,6 +401,40 @@ export default async function handler(req, res) {
             }
           } catch (e) {}
         }));
+      }
+
+            // Universal Direct High-Res Image Search
+      if (mfrStudioImages.length + secondaryImages.length < 5) {
+        try {
+          const bQueries = [
+            `"${brand}" "${sku}"`.trim(),
+            `"${brand}" "${cleanMfrSku}"`.trim(),
+            systemTitleHint ? `"${brand}" "${cleanMfrSku}" "${systemTitleHint}"` : `"${cleanMfrSku}" "${brand}"`
+          ];
+          for (const bq of bQueries) {
+            const bUrl = `https://www.bing.com/images/async?q=${encodeURIComponent(bq)}&first=0&count=15&mmasync=1`;
+            const bRes = await fetch(bUrl, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }, signal: AbortSignal.timeout(2200) });
+            if (bRes.ok) {
+              const bHtml = await bRes.text();
+              const matches = bHtml.match(/murl&quot;:&quot;([^&"]+)/gi) || [];
+              for (const m of matches.slice(0, 12)) {
+                let imgUrl = m.replace(/murl&quot;:&quot;/i, '').replace(/\\\//g, '/').trim();
+                if (imgUrl.match(/\.(jpg|jpeg|png|webp)($|\?)/i) && !imgUrl.includes('bing.com') && !imgUrl.includes('microsoft.com')) {
+                  const lower = imgUrl.toLowerCase();
+                  if (!NON_PRODUCT_BLOCKLIST.some(k => lower.includes(k)) && isImageMatchingSkuModel(imgUrl, brand, sku)) {
+                    const canonical = normalizeAndCanonicalizeUrl(imgUrl);
+                    const assetKey = getCanonicalAssetKey(canonical);
+                    if (!seenAssetKeys.has(assetKey)) {
+                      seenAssetKeys.add(assetKey);
+                      secondaryImages.push(canonical);
+                    }
+                  }
+                }
+              }
+            }
+            if (mfrStudioImages.length + secondaryImages.length >= 8) break;
+          }
+        } catch (e) {}
       }
 
       discoveredImages.push(...mfrStudioImages, ...secondaryImages);
