@@ -42,25 +42,31 @@ export const executeShopifyGraphQL = async (
 ): Promise<any> => {
   const config = customConfig || getStoredShopifyConfig();
 
-  if (!config.storeDomain || !config.accessToken) {
-    throw new Error('Shopify Store Domain and Admin Access Token must be configured in Shopify Settings.');
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+
+  if (config.storeDomain && config.storeDomain.trim()) {
+    let cleanStore = config.storeDomain.trim().replace(/^https?:\/\//, '').replace(/\/$/, '');
+    if (!cleanStore.includes('.')) {
+      cleanStore += '.myshopify.com';
+    }
+    headers['X-Shopify-Store'] = cleanStore;
   }
 
-  let cleanStore = config.storeDomain.trim().replace(/^https?:\/\//, '').replace(/\/$/, '');
-  if (!cleanStore.includes('.')) {
-    cleanStore += '.myshopify.com';
+  if (config.accessToken && config.accessToken.trim()) {
+    headers['X-Shopify-Access-Token'] = config.accessToken.trim();
+  }
+
+  if (config.apiVersion && config.apiVersion.trim()) {
+    headers['X-Shopify-Api-Version'] = config.apiVersion.trim();
   }
 
   let response: Response;
   try {
     response = await fetch('/api/shopify/graphql', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Shopify-Store': cleanStore,
-        'X-Shopify-Access-Token': config.accessToken.trim(),
-        'X-Shopify-Api-Version': config.apiVersion || '2025-01'
-      },
+      headers,
       body: JSON.stringify({ query, variables })
     });
   } catch (netErr: any) {

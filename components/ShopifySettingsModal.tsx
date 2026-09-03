@@ -28,11 +28,6 @@ export const ShopifySettingsModal: React.FC<ShopifySettingsModalProps> = ({ isOp
   }, [isOpen]);
 
   const handleTest = async () => {
-    if (!storeDomain.trim() || !accessToken.trim()) {
-      setTestResult({ success: false, error: 'Please enter both Store Domain and Admin Access Token.' });
-      return;
-    }
-
     setIsTesting(true);
     setTestResult(null);
 
@@ -102,13 +97,13 @@ export const ShopifySettingsModal: React.FC<ShopifySettingsModalProps> = ({ isOp
               <div className="relative">
                 <input
                   type="text"
-                  placeholder="your-store.myshopify.com"
+                  placeholder="wise-line-tools-one.myshopify.com (Default)"
                   value={storeDomain}
                   onChange={e => setStoreDomain(e.target.value)}
                   className="w-full p-3.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 focus:bg-white font-mono font-medium outline-none transition-all"
                 />
               </div>
-              <p className="text-[10px] text-slate-400 mt-1.5">Enter your store's `.myshopify.com` domain or custom handle.</p>
+              <p className="text-[10px] text-slate-400 mt-1.5">Optional. Leave blank to use Wise Line Tools default store.</p>
             </div>
 
             {/* Admin Access Token */}
@@ -119,12 +114,12 @@ export const ShopifySettingsModal: React.FC<ShopifySettingsModalProps> = ({ isOp
               </label>
               <input
                 type="password"
-                placeholder="shpat_xxxxxxxxxxxxxxxxxxxxxxxx"
+                placeholder="•••••••••••••••••••• (Preconfigured on Server)"
                 value={accessToken}
                 onChange={e => setAccessToken(e.target.value)}
                 className="w-full p-3.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 focus:bg-white font-mono outline-none transition-all"
               />
-              <p className="text-[10px] text-slate-400 mt-1.5">Created via Shopify Admin $\rightarrow$ Settings $\rightarrow$ Apps and sales channels $\rightarrow$ Develop apps.</p>
+              <p className="text-[10px] text-slate-400 mt-1.5">Optional. Preconfigured securely on the server for Wise Line Tools. Only enter to override.</p>
             </div>
 
             {/* API Version */}
